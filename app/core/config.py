@@ -59,7 +59,7 @@ class Settings(BaseSettings):
 
     # LLM
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    openai_base_url: str = Field(default_factory=lambda: os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"))
+    openai_base_url: str = Field(default_factory=lambda: os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
     llm_model_name: str = Field(default_factory=lambda: os.getenv("LLM_MODEL_NAME", "qwen-plus"))
     embedding_model_name: str = Field(default_factory=lambda: os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-v2"))
 
