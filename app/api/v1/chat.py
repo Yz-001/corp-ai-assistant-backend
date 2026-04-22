@@ -8,8 +8,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 import json
 import asyncio
+from openai import AsyncOpenAI
 
 from app.api.deps import DBSession, CurrentUser
+from app.core.config import settings
 from app.models.chat import ChatSession, ChatMessage
 from app.models.prompt import PromptConfig
 from app.schemas import (
@@ -27,6 +29,16 @@ from app.schemas import (
 from app.utils.id import generate_id
 
 router = APIRouter()
+
+
+def get_llm_client() -> AsyncOpenAI | None:
+    """Get LLM client if configured."""
+    if not settings.openai_api_key:
+        return None
+    return AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+    )
 
 
 @router.post("/sessions", response_model=BaseResponse[SessionResponse])
@@ -108,7 +120,7 @@ async def get_sessions(
     )
 
 
-@router.get("/sessions/{sessionId}", response_model=BaseResponse[SessionResponse])
+@router.get("/sessions/{sessionId}")
 async def get_session(sessionId: str, current_user: CurrentUser, db: DBSession):
     """Get session details with messages."""
     result = await db.execute(
@@ -145,16 +157,18 @@ async def get_session(sessionId: str, current_user: CurrentUser, db: DBSession):
         for m in messages
     ]
     
+    # Return session with messages
     return BaseResponse(
-        data=SessionResponse(
-            sessionId=session.id,
-            title=session.title,
-            channel=session.channel,
-            status=session.status,
-            lastMessageAt=session.last_message_at,
-            createdAt=session.created_at,
-            updatedAt=session.updated_at,
-        )
+        data={
+            "sessionId": session.id,
+            "title": session.title,
+            "channel": session.channel,
+            "status": session.status,
+            "lastMessageAt": session.last_message_at,
+            "createdAt": session.created_at,
+            "updatedAt": session.updated_at,
+            "messages": msg_items,
+        }
     )
 
 
@@ -313,20 +327,59 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
     db.add(user_msg)
     await db.commit()
     
+    # Get LLM client
+    client = get_llm_client()
+    
     async def generate_stream():
         """Generate streaming response."""
-        # Create assistant message placeholder
         assistant_msg_id = generate_id()
         
         # Send start event
         yield f"data: {json.dumps({'event': 'start', 'data': {'messageId': assistant_msg_id}})}\n\n"
         
-        # Simulate streaming response
-        response_text = "您好！我是AI企业助手，很高兴为您服务。请问有什么可以帮助您的吗？"
+        response_text = ""
+        prompt_tokens = 0
+        completion_tokens = 0
         
-        for char in response_text:
-            yield f"data: {json.dumps({'event': 'token', 'data': {'content': char}})}\n\n"
-            await asyncio.sleep(0.02)
+        if client:
+            try:
+                # Call LLM API with streaming
+                stream = await client.chat.completions.create(
+                    model=settings.llm_model_name,
+                    messages=[
+                        {"role": "system", "content": "你是AI企业助手，一个专业、友好的AI助手。请用中文回答用户的问题。"},
+                        {"role": "user", "content": request.query},
+                    ],
+                    stream=True,
+                )
+                
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        response_text += content
+                        yield f"data: {json.dumps({'event': 'token', 'data': {'content': content}})}\n\n"
+                    
+                    # Try to get usage info
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        prompt_tokens = chunk.usage.prompt_tokens or 0
+                        completion_tokens = chunk.usage.completion_tokens or 0
+                
+            except Exception as e:
+                # Fallback to error message
+                error_msg = f"抱歉，调用AI服务时出错：{str(e)}"
+                response_text = error_msg
+                yield f"data: {json.dumps({'event': 'token', 'data': {'content': error_msg}})}\n\n"
+        else:
+            # No API key configured
+            fallback_msg = "您好！我是AI企业助手。当前未配置API Key，请设置环境变量 OPENAI_API_KEY。"
+            response_text = fallback_msg
+            for char in fallback_msg:
+                yield f"data: {json.dumps({'event': 'token', 'data': {'content': char}})}\n\n"
+                await asyncio.sleep(0.02)
+        
+        # Calculate tokens if not provided
+        if not completion_tokens:
+            completion_tokens = len(response_text)
         
         # Save assistant message
         assistant_msg = ChatMessage(
@@ -337,9 +390,9 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
             content=response_text,
             status="done",
             token_usage={
-                "promptTokens": 50,
-                "completionTokens": len(response_text),
-                "totalTokens": 50 + len(response_text),
+                "promptTokens": prompt_tokens,
+                "completionTokens": completion_tokens,
+                "totalTokens": prompt_tokens + completion_tokens,
             },
         )
         db.add(assistant_msg)
