@@ -30,6 +30,12 @@ async def get_redis() -> AsyncGenerator[Redis, None]:
     yield redis_client
 
 
+async def init_redis() -> None:
+    """Initialize Redis connection."""
+    global redis_client
+    redis_client = create_redis_client()
+
+
 async def close_redis() -> None:
     """Close Redis connection."""
     await redis_client.close()

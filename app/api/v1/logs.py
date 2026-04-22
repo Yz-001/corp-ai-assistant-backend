@@ -10,7 +10,8 @@ import csv
 import io
 
 from app.api.deps import DBSession, TenantAdmin
-from app.models.log import QALog, AuditLog, ToolCallLog
+from app.models.log import QALog, AuditLog
+from app.models.tool import ToolCallLog
 from app.schemas import (
     BaseResponse,
     PaginatedResponse,
@@ -86,7 +87,7 @@ async def list_audit_logs(
     ]
     
     return BaseResponse(
-        data=PaginatedResponse(list=items, total=total, pageNum=pageNum, pageSize=pageSize)
+        data=PaginatedResponse(items=items, total=total, pageNum=pageNum, pageSize=pageSize)
     )
 
 
@@ -151,7 +152,7 @@ async def list_qa_logs(
     ]
     
     return BaseResponse(
-        data=PaginatedResponse(list=items, total=total, pageNum=pageNum, pageSize=pageSize)
+        data=PaginatedResponse(items=items, total=total, pageNum=pageNum, pageSize=pageSize)
     )
 
 
@@ -253,7 +254,7 @@ async def list_tool_logs(
     ]
     
     return BaseResponse(
-        data=PaginatedResponse(list=items, total=total, pageNum=pageNum, pageSize=pageSize)
+        data=PaginatedResponse(items=items, total=total, pageNum=pageNum, pageSize=pageSize)
     )
 
 

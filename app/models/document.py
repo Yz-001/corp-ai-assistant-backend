@@ -93,7 +93,7 @@ class DocumentChunk(Base, TimestampMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    chunk_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default="now()",

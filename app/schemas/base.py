@@ -27,7 +27,7 @@ class PaginationParams(BaseModel):
 class PaginatedResponse(BaseModel, Generic[T]):
     """Paginated response data."""
 
-    list: list[T] = Field(default_factory=list, description="Data list")
+    items: list[T] = Field(default_factory=list, description="Data list")
     total: int = Field(default=0, description="Total count")
     page_num: int = Field(default=1, alias="pageNum", description="Current page number")
     page_size: int = Field(default=20, alias="pageSize", description="Page size")

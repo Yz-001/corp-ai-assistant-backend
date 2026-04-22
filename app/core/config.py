@@ -25,8 +25,10 @@ class Settings(BaseSettings):
 
     # Database
     postgres_dsn: PostgresDsn = Field(
-        default="postgresql://postgres:postgres@localhost:5432/ai_assistant"
+        default="postgresql+asyncpg://postgres:postgres@localhost:5432/ai_assistant"
     )
+    sqlite_dsn: str = "sqlite+aiosqlite:///./data/app.db"
+    use_sqlite: bool = True
     db_echo: bool = False
 
     # Redis
@@ -99,6 +101,8 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """Get database URL as string."""
+        if self.use_sqlite:
+            return self.sqlite_dsn
         return str(self.postgres_dsn)
 
     @property

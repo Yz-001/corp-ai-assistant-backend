@@ -7,7 +7,8 @@ from fastapi import APIRouter, Query
 from sqlalchemy import select, func
 
 from app.api.deps import DBSession, TenantAdmin
-from app.models.log import QALog, ToolCallLog
+from app.models.log import QALog
+from app.models.tool import ToolCallLog
 from app.models.document import Document
 from app.models.usage import UsageRecord
 from app.schemas import (

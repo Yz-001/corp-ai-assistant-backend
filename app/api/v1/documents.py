@@ -233,3 +233,18 @@ async def get_document_chunks(
         DocumentChunkResponse(
             chunkId=c.id,
             chunkIndex=c.chunk_index,
+            content=c.content,
+            tokenCount=c.token_count,
+            metadata=c.chunk_metadata,
+        )
+        for c in chunks
+    ]
+    
+    return BaseResponse(
+        data=PaginatedResponse(
+            items=items,
+            total=total,
+            pageNum=pageNum,
+            pageSize=pageSize,
+        )
+    )
