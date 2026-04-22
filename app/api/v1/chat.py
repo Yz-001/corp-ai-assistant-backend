@@ -4,7 +4,10 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
+import json
+import asyncio
 
 from app.api.deps import DBSession, CurrentUser
 from app.models.chat import ChatSession, ChatMessage
@@ -279,6 +282,82 @@ async def send_message(request: MessageCreate, current_user: CurrentUser, db: DB
             tokenUsage=assistant_msg.token_usage,
             createdAt=assistant_msg.created_at,
         )
+    )
+
+
+@router.post("/messages/stream")
+async def send_message_stream(request: MessageCreate, current_user: CurrentUser, db: DBSession):
+    """Send a message with streaming response."""
+    # Verify session
+    result = await db.execute(
+        select(ChatSession).where(
+            ChatSession.id == request.session_id,
+            ChatSession.tenant_id == current_user.tenant_id,
+            ChatSession.user_id == current_user.id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Create user message
+    user_msg = ChatMessage(
+        id=generate_id(),
+        tenant_id=current_user.tenant_id,
+        session_id=request.session_id,
+        role="user",
+        content=request.query,
+        status="done",
+    )
+    db.add(user_msg)
+    await db.commit()
+    
+    async def generate_stream():
+        """Generate streaming response."""
+        # Create assistant message placeholder
+        assistant_msg_id = generate_id()
+        
+        # Send start event
+        yield f"data: {json.dumps({'event': 'start', 'data': {'messageId': assistant_msg_id}})}\n\n"
+        
+        # Simulate streaming response
+        response_text = "您好！我是AI企业助手，很高兴为您服务。请问有什么可以帮助您的吗？"
+        
+        for char in response_text:
+            yield f"data: {json.dumps({'event': 'token', 'data': {'content': char}})}\n\n"
+            await asyncio.sleep(0.02)
+        
+        # Save assistant message
+        assistant_msg = ChatMessage(
+            id=assistant_msg_id,
+            tenant_id=current_user.tenant_id,
+            session_id=request.session_id,
+            role="assistant",
+            content=response_text,
+            status="done",
+            token_usage={
+                "promptTokens": 50,
+                "completionTokens": len(response_text),
+                "totalTokens": 50 + len(response_text),
+            },
+        )
+        db.add(assistant_msg)
+        
+        # Update session last message time
+        session.last_message_at = datetime.utcnow()
+        await db.commit()
+        
+        # Send done event
+        yield f"data: {json.dumps({'event': 'done', 'data': {'messageId': assistant_msg_id, 'tokenUsage': assistant_msg.token_usage}})}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
     )
 
 

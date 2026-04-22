@@ -48,7 +48,7 @@ async def get_current_user(
             detail="User not found",
         )
     
-    if user.status != "active":
+    if user.status != "enabled":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User is not active",
@@ -61,7 +61,7 @@ async def get_current_active_user(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
     """Get current active user."""
-    if current_user.status != "active":
+    if current_user.status != "enabled":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user",
