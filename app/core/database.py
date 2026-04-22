@@ -76,9 +76,57 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Initialize database tables."""
+    """Initialize database tables and create default data."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    
+    # Create default tenant and admin user if not exists
+    async with async_session_maker() as session:
+        from sqlalchemy import select
+        from app.models.tenant import Tenant
+        from app.models.user import User
+        from app.core.security import get_password_hash
+        from app.utils.id import generate_id
+        
+        # Check if default tenant exists
+        result = await session.execute(
+            select(Tenant).where(Tenant.id == "default")
+        )
+        tenant = result.scalar_one_or_none()
+        
+        if not tenant:
+            # Create default tenant
+            tenant = Tenant(
+                id="default",
+                name="Default Tenant",
+                code="default",
+                type="enterprise",
+                status="enabled",
+                plan_type="enterprise",
+            )
+            session.add(tenant)
+            await session.flush()
+        
+        # Check if admin user exists
+        result = await session.execute(
+            select(User).where(User.username == "admin")
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            # Create admin user
+            user = User(
+                id=generate_id(),
+                tenant_id="default",
+                username="admin",
+                password_hash=get_password_hash("admin123"),
+                email="admin@example.com",
+                role="super_admin",
+                status="enabled",
+            )
+            session.add(user)
+            await session.commit()
+            print("Created default admin user: admin / admin123")
 
 
 async def close_db() -> None:

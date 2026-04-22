@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Integer, Float, Date, Index
+from sqlalchemy import func, DateTime, ForeignKey, String, Integer, Float, Date, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -42,13 +42,13 @@ class UsageRecord(Base, TimestampMixin):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
+        server_default=func.now(),
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
-        onupdate="now()",
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 

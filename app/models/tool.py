@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Integer, JSON, Boolean, Index
+from sqlalchemy import func, DateTime, ForeignKey, String, Text, Integer, JSON, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -36,13 +36,13 @@ class ToolDefinition(Base, TimestampMixin):
     )  # healthy, unhealthy, unknown
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
+        server_default=func.now(),
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
-        onupdate="now()",
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 
@@ -80,13 +80,13 @@ class TenantToolPermission(Base, TimestampMixin):
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
+        server_default=func.now(),
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
-        onupdate="now()",
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 
@@ -135,14 +135,14 @@ class ToolCallLog(Base, TimestampMixin):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
+        server_default=func.now(),
         nullable=False,
         index=True,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
-        onupdate="now()",
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 

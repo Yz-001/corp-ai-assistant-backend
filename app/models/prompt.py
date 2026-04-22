@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Integer, Boolean, Index
+from sqlalchemy import func, DateTime, ForeignKey, String, Text, Integer, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -43,13 +43,13 @@ class PromptConfig(Base, TimestampMixin):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
+        server_default=func.now(),
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default="now()",
-        onupdate="now()",
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 
