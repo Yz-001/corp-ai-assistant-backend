@@ -54,24 +54,31 @@ async def get_traffic(
     traffic = []
     now = datetime.utcnow()
     
+    # Build base query with tenant filter
+    tenant_id = current_user.tenant_id if current_user.role != "super_admin" else None
+    
     for i in range(hours - 1, -1, -1):
         hour_start = now - timedelta(hours=i + 1)
         hour_end = now - timedelta(hours=i)
         
-        qa_result = await db.execute(
-            select(func.count()).where(
-                QALog.created_at >= hour_start,
-                QALog.created_at < hour_end
-            )
+        # QA logs query
+        qa_query = select(func.count()).where(
+            QALog.created_at >= hour_start,
+            QALog.created_at < hour_end
         )
+        if tenant_id:
+            qa_query = qa_query.where(QALog.tenant_id == tenant_id)
+        qa_result = await db.execute(qa_query)
         qa_count = qa_result.scalar() or 0
         
-        tool_result = await db.execute(
-            select(func.count()).where(
-                ToolCallLog.created_at >= hour_start,
-                ToolCallLog.created_at < hour_end
-            )
+        # Tool logs query
+        tool_query = select(func.count()).where(
+            ToolCallLog.created_at >= hour_start,
+            ToolCallLog.created_at < hour_end
         )
+        if tenant_id:
+            tool_query = tool_query.where(ToolCallLog.tenant_id == tenant_id)
+        tool_result = await db.execute(tool_query)
         tool_count = tool_result.scalar() or 0
         
         traffic.append(TrafficResponse(
@@ -92,16 +99,21 @@ async def get_tokens(
     tokens = []
     now = datetime.utcnow()
     
+    # Build base query with tenant filter
+    tenant_id = current_user.tenant_id if current_user.role != "super_admin" else None
+    
     for i in range(hours - 1, -1, -1):
         hour_start = now - timedelta(hours=i + 1)
         hour_end = now - timedelta(hours=i)
         
-        result = await db.execute(
-            select(func.sum(QALog.total_tokens)).where(
-                QALog.created_at >= hour_start,
-                QALog.created_at < hour_end
-            )
+        query = select(func.sum(QALog.total_tokens)).where(
+            QALog.created_at >= hour_start,
+            QALog.created_at < hour_end
         )
+        if tenant_id:
+            query = query.where(QALog.tenant_id == tenant_id)
+        
+        result = await db.execute(query)
         token_count = result.scalar() or 0
         
         tokens.append(TokensResponse(
@@ -122,26 +134,33 @@ async def get_errors(
     errors = []
     now = datetime.utcnow()
     
+    # Build base query with tenant filter
+    tenant_id = current_user.tenant_id if current_user.role != "super_admin" else None
+    
     for i in range(hours - 1, -1, -1):
         hour_start = now - timedelta(hours=i + 1)
         hour_end = now - timedelta(hours=i)
         
-        qa_error_result = await db.execute(
-            select(func.count()).where(
-                QALog.created_at >= hour_start,
-                QALog.created_at < hour_end,
-                QALog.status == "failed"
-            )
+        # QA errors query
+        qa_query = select(func.count()).where(
+            QALog.created_at >= hour_start,
+            QALog.created_at < hour_end,
+            QALog.status == "failed"
         )
+        if tenant_id:
+            qa_query = qa_query.where(QALog.tenant_id == tenant_id)
+        qa_error_result = await db.execute(qa_query)
         qa_errors = qa_error_result.scalar() or 0
         
-        tool_error_result = await db.execute(
-            select(func.count()).where(
-                ToolCallLog.created_at >= hour_start,
-                ToolCallLog.created_at < hour_end,
-                ToolCallLog.status == "failed"
-            )
+        # Tool errors query
+        tool_query = select(func.count()).where(
+            ToolCallLog.created_at >= hour_start,
+            ToolCallLog.created_at < hour_end,
+            ToolCallLog.status == "failed"
         )
+        if tenant_id:
+            tool_query = tool_query.where(ToolCallLog.tenant_id == tenant_id)
+        tool_error_result = await db.execute(tool_query)
         tool_errors = tool_error_result.scalar() or 0
         
         errors.append(ErrorsResponse(
@@ -162,16 +181,21 @@ async def get_response_time(
     response_times = []
     now = datetime.utcnow()
     
+    # Build base query with tenant filter
+    tenant_id = current_user.tenant_id if current_user.role != "super_admin" else None
+    
     for i in range(hours - 1, -1, -1):
         hour_start = now - timedelta(hours=i + 1)
         hour_end = now - timedelta(hours=i)
         
-        result = await db.execute(
-            select(func.avg(QALog.latency_ms)).where(
-                QALog.created_at >= hour_start,
-                QALog.created_at < hour_end
-            )
+        query = select(func.avg(QALog.latency_ms)).where(
+            QALog.created_at >= hour_start,
+            QALog.created_at < hour_end
         )
+        if tenant_id:
+            query = query.where(QALog.tenant_id == tenant_id)
+        
+        result = await db.execute(query)
         avg_latency = result.scalar() or 0
         
         response_times.append(ResponseTimeResponse(

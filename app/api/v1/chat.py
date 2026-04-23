@@ -21,12 +21,15 @@ from app.schemas import (
     SessionUpdate,
     SessionResponse,
     SessionListResponse,
+    SessionDetailResponse,
     MessageCreate,
     MessageResponse,
     PromptResponse,
     SuggestionResponse,
 )
 from app.utils.id import generate_id
+from app.utils.log_service import LogService
+from app.utils.rag_service import RAGService, build_rag_prompt
 
 router = APIRouter()
 
@@ -113,7 +116,7 @@ async def get_sessions(
     
     return BaseResponse(
         data=PaginatedResponse(
-            list=items,
+            items=items,
             total=total,
             pageNum=pageNum,
             pageSize=pageSize,
@@ -121,7 +124,7 @@ async def get_sessions(
     )
 
 
-@router.get("/sessions/{sessionId}")
+@router.get("/sessions/{sessionId}", response_model=BaseResponse[SessionDetailResponse])
 async def get_session(sessionId: str, current_user: CurrentUser, db: DBSession):
     """Get session details with messages."""
     result = await db.execute(
@@ -160,16 +163,16 @@ async def get_session(sessionId: str, current_user: CurrentUser, db: DBSession):
     
     # Return session with messages
     return BaseResponse(
-        data={
-            "sessionId": session.id,
-            "title": session.title,
-            "channel": session.channel,
-            "status": session.status,
-            "lastMessageAt": session.last_message_at,
-            "createdAt": session.created_at,
-            "updatedAt": session.updated_at,
-            "messages": msg_items,
-        }
+        data=SessionDetailResponse(
+            sessionId=session.id,
+            title=session.title,
+            channel=session.channel,
+            status=session.status,
+            lastMessageAt=session.last_message_at,
+            createdAt=session.created_at,
+            updatedAt=session.updated_at,
+            messages=msg_items,
+        )
     )
 
 
@@ -300,6 +303,30 @@ async def send_message(request: MessageCreate, current_user: CurrentUser, db: DB
     )
 
 
+async def generate_session_title(client: AsyncOpenAI | None, user_query: str) -> str:
+    """Generate a short title for the session based on user's first query."""
+    if not client:
+        # Fallback: use first 20 chars of query as title
+        return user_query[:20] + ("..." if len(user_query) > 20 else "")
+    
+    try:
+        response = await client.chat.completions.create(
+            model=settings.llm_model_name,
+            messages=[
+                {"role": "system", "content": "你是一个标题生成助手。请根据用户的问题生成一个简短的标题（不超过15个字），只返回标题本身，不要加引号或其他符号。"},
+                {"role": "user", "content": user_query},
+            ],
+            max_tokens=20,
+            temperature=0.7,
+        )
+        title = response.choices[0].message.content.strip()
+        # Limit to 30 chars
+        return title[:30] if len(title) > 30 else title
+    except Exception:
+        # Fallback: use first 20 chars of query as title
+        return user_query[:20] + ("..." if len(user_query) > 20 else "")
+
+
 @router.post("/messages/stream")
 async def send_message_stream(request: MessageCreate, current_user: CurrentUser, db: DBSession):
     """Send a message with streaming response."""
@@ -316,6 +343,12 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     
+    # Check if this is the first message in the session (for auto title generation)
+    existing_msgs = await db.execute(
+        select(func.count()).where(ChatMessage.session_id == request.session_id)
+    )
+    is_first_message = (existing_msgs.scalar() or 0) == 0
+    
     # Create user message
     user_msg = ChatMessage(
         id=generate_id(),
@@ -331,6 +364,13 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
     # Get LLM client
     client = get_llm_client()
     
+    # Generate title for new session
+    new_title = None
+    if is_first_message and (session.title == "新会话" or not session.title):
+        new_title = await generate_session_title(client, request.query)
+        session.title = new_title
+        await db.commit()
+    
     async def generate_stream():
         """Generate streaming response."""
         assistant_msg_id = generate_id()
@@ -341,6 +381,14 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
         response_text = ""
         prompt_tokens = 0
         completion_tokens = 0
+        sources = []
+        
+        # Search for relevant document chunks (RAG)
+        rag_service = RAGService(db, current_user.tenant_id)
+        context, sources = await rag_service.build_context(request.query)
+        
+        # Build prompt with context
+        rag_prompt = build_rag_prompt(request.query, context)
         
         if client:
             try:
@@ -348,8 +396,8 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
                 stream = await client.chat.completions.create(
                     model=settings.llm_model_name,
                     messages=[
-                        {"role": "system", "content": "你是AI企业助手，一个专业、友好的AI助手。请用中文回答用户的问题。"},
-                        {"role": "user", "content": request.query},
+                        {"role": "system", "content": "你是AI企业助手，一个专业、友好的AI助手。请根据提供的参考资料准确回答用户的问题。如果参考资料中有相关信息，请优先使用；如果没有，可以根据你的知识回答，但要说明这不是来自文档资料。"},
+                        {"role": "user", "content": rag_prompt},
                     ],
                     stream=True,
                 )
@@ -390,6 +438,7 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
             role="assistant",
             content=response_text,
             status="done",
+            sources=sources,
             token_usage={
                 "promptTokens": prompt_tokens,
                 "completionTokens": completion_tokens,
@@ -402,8 +451,29 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
         session.last_message_at = datetime.utcnow()
         await db.commit()
         
-        # Send done event
-        yield f"data: {json.dumps({'event': 'done', 'data': {'messageId': assistant_msg_id, 'tokenUsage': assistant_msg.token_usage}})}\n\n"
+        # Record QA log
+        log_service = LogService(db, current_user.tenant_id)
+        await log_service.record_qa_log(
+            query=request.query,
+            answer=response_text,
+            user_id=current_user.id,
+            session_id=request.session_id,
+            model_name=settings.llm_model_name,
+            latency_ms=0,  # TODO: track actual latency
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            status="success",
+        )
+        
+        # Send done event with optional new title and sources
+        done_data = {
+            'messageId': assistant_msg_id, 
+            'tokenUsage': assistant_msg.token_usage,
+            'sources': sources,
+        }
+        if new_title:
+            done_data['title'] = new_title
+        yield f"data: {json.dumps({'event': 'done', 'data': done_data})}\n\n"
     
     return StreamingResponse(
         generate_stream(),

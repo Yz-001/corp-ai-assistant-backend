@@ -105,3 +105,20 @@ class ChatAnswerResponse(BaseModel):
     latency_ms: int = Field(default=0, alias="latencyMs", description="Latency in milliseconds")
 
     model_config = {"populate_by_name": True}
+
+
+class SessionDetailResponse(BaseModel):
+    """Session detail response with messages."""
+
+    session_id: str = Field(alias="sessionId", description="Session ID")
+    title: str = Field(description="Session title")
+    channel: str = Field(description="Channel")
+    status: str = Field(description="Status")
+    last_message_at: datetime | None = Field(
+        default=None, alias="lastMessageAt", description="Last message time"
+    )
+    created_at: datetime = Field(alias="createdAt", description="Created time")
+    updated_at: datetime = Field(alias="updatedAt", description="Updated time")
+    messages: list[MessageResponse] = Field(default_factory=list, description="Messages in session")
+
+    model_config = {"populate_by_name": True}

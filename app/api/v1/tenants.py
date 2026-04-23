@@ -102,7 +102,7 @@ async def list_tenants(
         ))
     
     return BaseResponse(
-        data=PaginatedResponse(list=items, total=total, pageNum=pageNum, pageSize=pageSize)
+        data=PaginatedResponse(items=items, total=total, pageNum=pageNum, pageSize=pageSize)
     )
 
 

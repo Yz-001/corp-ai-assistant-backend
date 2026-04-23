@@ -9,46 +9,43 @@ from pydantic import BaseModel, Field
 class OnlineUsersResponse(BaseModel):
     """Online users response."""
 
-    current_online_users: int = Field(alias="currentOnlineUsers", description="Current online users count")
-    trend: list[dict[str, Any]] = Field(default_factory=list, description="Online users trend")
+    online_users: int = Field(alias="onlineUsers", description="Current online users count")
+    active_users: int = Field(alias="activeUsers", description="Active users in last 30 min")
 
     model_config = {"populate_by_name": True}
 
 
 class TrafficResponse(BaseModel):
-    """Traffic response."""
+    """Traffic response for a time point."""
 
-    request_count: int = Field(alias="requestCount", description="Total request count")
-    requests_per_minute: int = Field(alias="requestsPerMinute", description="Requests per minute")
-    trend: list[dict[str, Any]] = Field(default_factory=list, description="Traffic trend")
+    time: str = Field(description="Time point (e.g., '15:00')")
+    requests: int = Field(description="Request count for this time point")
 
     model_config = {"populate_by_name": True}
 
 
 class TokensResponse(BaseModel):
-    """Tokens response."""
+    """Tokens response for a time point."""
 
-    total_tokens: int = Field(alias="totalTokens", description="Total tokens")
-    tokens_per_minute: float = Field(alias="tokensPerMinute", description="Tokens per minute")
-    trend: list[dict[str, Any]] = Field(default_factory=list, description="Tokens trend")
+    time: str = Field(description="Time point (e.g., '15:00')")
+    tokens: int = Field(description="Token count for this time point")
 
     model_config = {"populate_by_name": True}
 
 
 class ErrorsResponse(BaseModel):
-    """Errors response."""
+    """Errors response for a time point."""
 
-    error_count: int = Field(alias="errorCount", description="Error count")
-    error_rate: float = Field(alias="errorRate", description="Error rate")
-    trend: list[dict[str, Any]] = Field(default_factory=list, description="Errors trend")
+    time: str = Field(description="Time point (e.g., '15:00')")
+    errors: int = Field(description="Error count for this time point")
 
     model_config = {"populate_by_name": True}
 
 
 class ResponseTimeResponse(BaseModel):
-    """Response time response."""
+    """Response time response for a time point."""
 
-    avg_response_time_ms: int = Field(alias="avgResponseTimeMs", description="Average response time in ms")
-    trend: list[dict[str, Any]] = Field(default_factory=list, description="Response time trend")
+    time: str = Field(description="Time point (e.g., '15:00')")
+    avg_latency_ms: int = Field(alias="avgLatencyMs", description="Average latency in ms")
 
     model_config = {"populate_by_name": True}

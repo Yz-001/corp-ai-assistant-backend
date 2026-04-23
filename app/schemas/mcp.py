@@ -66,11 +66,11 @@ class MCPToolResponse(BaseModel):
 
     tool_id: str = Field(alias="toolId", description="Tool ID")
     server_id: str = Field(alias="serverId", description="Server ID")
-    tool_code: str = Field(alias="toolCode", description="Tool code")
-    tool_name: str = Field(alias="toolName", description="Tool name")
+    name: str = Field(description="Tool name")
     description: str | None = Field(default=None, description="Tool description")
-    schema: dict[str, Any] | None = Field(default=None, description="Tool schema")
-    status: str = Field(description="Status: enabled, disabled")
+    input_schema: dict[str, Any] | None = Field(default=None, alias="inputSchema", description="Tool input schema")
+    enabled: bool = Field(default=True, description="Whether tool is enabled")
+    created_at: datetime | None = Field(default=None, alias="createdAt", description="Created time")
 
     model_config = {"populate_by_name": True}
 

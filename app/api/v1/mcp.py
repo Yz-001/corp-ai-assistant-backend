@@ -67,7 +67,7 @@ async def list_mcp_servers(
     ]
     
     return BaseResponse(
-        data=PaginatedResponse(list=items, total=total, pageNum=pageNum, pageSize=pageSize)
+        data=PaginatedResponse(items=items, total=total, pageNum=pageNum, pageSize=pageSize)
     )
 
 
@@ -288,7 +288,7 @@ async def list_mcp_tools(
     ]
     
     return BaseResponse(
-        data=PaginatedResponse(list=items, total=total, pageNum=pageNum, pageSize=pageSize)
+        data=PaginatedResponse(items=items, total=total, pageNum=pageNum, pageSize=pageSize)
     )
 
 

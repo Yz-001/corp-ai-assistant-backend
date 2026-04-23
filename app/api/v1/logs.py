@@ -80,7 +80,7 @@ async def list_audit_logs(
             action=log.action,
             targetType=log.target_type,
             targetId=log.target_id,
-            details=log.details,
+            detail=log.detail,
             createdAt=log.created_at,
         )
         for log in logs

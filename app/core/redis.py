@@ -160,11 +160,15 @@ async def track_online_user(user_id: str) -> None:
 
 async def get_online_users_count() -> int:
     """Get count of online users."""
-    now = int(__import__("time").time())
-    cutoff = now - settings.online_user_ttl_seconds
-    # Remove stale entries first
-    await redis_client.zremrangebyscore(RedisKeys.ONLINE_USERS, "-inf", cutoff)
-    return await redis_client.zcard(RedisKeys.ONLINE_USERS)
+    try:
+        now = int(__import__("time").time())
+        cutoff = now - settings.online_user_ttl_seconds
+        # Remove stale entries first
+        await redis_client.zremrangebyscore(RedisKeys.ONLINE_USERS, "-inf", cutoff)
+        return await redis_client.zcard(RedisKeys.ONLINE_USERS)
+    except Exception:
+        # Redis not available, return 0
+        return 0
 
 
 async def is_user_online(user_id: str) -> bool:

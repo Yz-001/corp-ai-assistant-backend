@@ -81,14 +81,14 @@ class AuditLogResponse(BaseModel):
     """Audit log response."""
 
     log_id: str = Field(alias="logId", description="Log ID")
-    tenant_name: str | None = Field(default=None, alias="tenantName", description="Tenant name")
+    tenant_id: str | None = Field(default=None, alias="tenantId", description="Tenant ID")
+    operator_id: str | None = Field(default=None, alias="operatorId", description="Operator ID")
     operator_name: str | None = Field(default=None, alias="operatorName", description="Operator name")
     module: str = Field(description="Module")
     action: str = Field(description="Action")
     target_type: str | None = Field(default=None, alias="targetType", description="Target type")
     target_id: str | None = Field(default=None, alias="targetId", description="Target ID")
     detail: dict[str, Any] | None = Field(default=None, description="Detail")
-    ip_address: str | None = Field(default=None, alias="ipAddress", description="IP address")
     created_at: datetime = Field(alias="createdAt", description="Created time")
 
     model_config = {"populate_by_name": True}
