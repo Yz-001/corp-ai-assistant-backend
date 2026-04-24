@@ -201,8 +201,32 @@ async def upload_document(
     file: UploadFile = File(...),
     visibility: str = Form(default="private"),
     remark: str | None = Form(default=None),
+    tenantId: str | None = Form(default=None, description="Target tenant ID (super admin only)"),
 ):
-    """Upload a document."""
+    """Upload a document.
+    
+    - Regular users: upload to their own tenant
+    - Super admin: can specify target tenant via tenantId parameter
+    """
+    # Determine target tenant
+    target_tenant_id = current_user.tenant_id
+    
+    # Super admin can specify a different tenant
+    if tenantId:
+        if current_user.role != "super_admin":
+            raise HTTPException(status_code=403, detail="只有超级管理员可以指定目标租户")
+        
+        # Verify target tenant exists
+        from app.models.tenant import Tenant
+        tenant_result = await db.execute(select(Tenant).where(Tenant.id == tenantId))
+        target_tenant = tenant_result.scalar_one_or_none()
+        if not target_tenant:
+            raise HTTPException(status_code=404, detail="目标租户不存在")
+        if target_tenant.status != "enabled":
+            raise HTTPException(status_code=400, detail="目标租户未启用")
+        
+        target_tenant_id = tenantId
+    
     # Validate file type
     allowed_types = ["application/pdf", "application/msword", 
                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -226,7 +250,7 @@ async def upload_document(
     # Create document record
     doc = Document(
         id=generate_id(),
-        tenant_id=current_user.tenant_id,
+        tenant_id=target_tenant_id,
         name=file.filename or "unnamed",
         file_name=file.filename or "unnamed",
         file_type=file.content_type or "unknown",
@@ -245,7 +269,7 @@ async def upload_document(
         process_document, 
         doc.id, 
         storage_path, 
-        current_user.tenant_id
+        target_tenant_id
     )
     
     return BaseResponse(
