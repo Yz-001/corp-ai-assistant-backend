@@ -123,9 +123,9 @@ async def create_tenant(
         name=request.name,
         code=request.code,
         type=request.type or "enterprise",
-        plan_type=request.planType or "basic",
+        plan_type=request.plan_type or "basic",
         status=request.status or "enabled",
-        quota_config=request.quotaConfig or {},
+        quota_config=request.quota_config or {},
     )
     db.add(tenant)
     await db.commit()
