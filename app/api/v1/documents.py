@@ -19,6 +19,7 @@ from app.schemas import (
     DocumentChunkResponse,
 )
 from app.utils.id import generate_id
+from app.utils.rag_service import index_document_chunks
 
 router = APIRouter()
 
@@ -143,9 +144,31 @@ async def process_document(doc_id: str, file_path: Path, tenant_id: str):
             
             print(f"[Document Processing] Created {len(chunks)} chunks")
             
-            # Save chunks
+            # Save chunks to database
             for chunk in chunks:
                 db.add(chunk)
+            
+            await db.commit()
+            
+            # Index chunks to vector store
+            try:
+                chunk_data = [
+                    {
+                        "id": chunk.id,
+                        "content": chunk.content,
+                        "chunk_index": chunk.chunk_index,
+                    }
+                    for chunk in chunks
+                ]
+                await index_document_chunks(
+                    tenant_id=tenant_id,
+                    document_id=doc_id,
+                    document_name=doc.name,
+                    chunks=chunk_data,
+                )
+                print(f"[Document Processing] Indexed {len(chunks)} chunks to vector store")
+            except Exception as e:
+                print(f"[Document Processing] Warning: Failed to index to vector store: {e}")
             
             # Update document status
             doc.status = "completed"
