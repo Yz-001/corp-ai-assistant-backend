@@ -25,7 +25,7 @@ async def list_users(
     db: DBSession,
     current_user: TenantAdmin,
     pageNum: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1),
     role: str | None = Query(None),
     status: str | None = Query(None),
     keyword: str | None = Query(None),

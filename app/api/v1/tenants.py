@@ -30,7 +30,7 @@ async def list_tenants(
     db: DBSession,
     current_user: SuperUser,
     pageNum: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1),
     keyword: str | None = Query(None),
     status: str | None = Query(None),
     type: str | None = Query(None),

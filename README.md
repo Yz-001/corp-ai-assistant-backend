@@ -159,6 +159,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 | POST | /upload | 上传文档 |
 | GET | / | 获取文档列表 |
 | GET | /{documentId} | 获取文档详情 |
+| PATCH | /{documentId} | 更新文档（名称、可见性） |
 | DELETE | /{documentId} | 删除文档 |
 | POST | /{documentId}/retry | 重试处理失败的文档 |
 | GET | /{documentId}/chunks | 获取文档分块列表 |
@@ -189,7 +190,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 | POST | / | 创建工具 |
 | GET | /{toolId} | 获取工具详情 |
 | PATCH | /{toolId} | 更新工具 |
-| DELETE | /{toolId} | 删除工具 |
+| PATCH | /{toolId}/status | 更新工具状态 |
+| GET | /{toolId}/stats | 获取工具调用统计 |
 
 ### MCP服务器 `/api/v1/admin/mcp`
 | 方法 | 路径 | 描述 |
@@ -199,9 +201,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 | GET | /servers/{serverId} | 获取服务器详情 |
 | PATCH | /servers/{serverId} | 更新服务器 |
 | DELETE | /servers/{serverId} | 删除服务器 |
-| POST | /servers/{serverId}/connect | 连接服务器 |
-| POST | /servers/{serverId}/disconnect | 断开服务器 |
+| GET | /servers/{serverId}/status | 获取服务器连接状态 |
+| POST | /servers/{serverId}/discover-tools | 发现服务器工具 |
 | GET | /tools | 获取MCP工具列表 |
+| POST | /tools/{toolId}/bind-tenants | 绑定工具到租户 |
 
 ### 仪表盘 `/api/v1/admin/dashboard`
 | 方法 | 路径 | 描述 |

@@ -27,7 +27,7 @@ async def list_tools(
     db: DBSession,
     current_user: TenantAdmin,
     pageNum: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1),
     status: str | None = Query(None),
     type: str | None = Query(None),
 ):

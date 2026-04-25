@@ -77,3 +77,8 @@ wheels/
 .venv/
 venv/
 ENV/
+
+# Data and uploads
+data/
+upload/
+db/

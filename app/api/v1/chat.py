@@ -78,7 +78,7 @@ async def get_sessions(
     current_user: CurrentUser,
     db: DBSession,
     pageNum: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1),
     keyword: str | None = Query(None),
 ):
     """Get user's chat sessions."""

@@ -29,7 +29,7 @@ async def list_mcp_servers(
     db: DBSession,
     current_user: TenantAdmin,
     pageNum: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1),
     status: str | None = Query(None),
 ):
     """List all MCP servers."""
@@ -253,7 +253,7 @@ async def list_mcp_tools(
     db: DBSession,
     current_user: TenantAdmin,
     pageNum: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1),
     serverId: str | None = Query(None),
 ):
     """List all MCP tools."""

@@ -286,7 +286,7 @@ async def get_documents(
     current_user: CurrentUser,
     db: DBSession,
     pageNum: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1),
     keyword: str | None = Query(None),
     status: str | None = Query(None),
     fileType: str | None = Query(None),
@@ -471,7 +471,7 @@ async def get_document_chunks(
     current_user: CurrentUser,
     db: DBSession,
     pageNum: int = Query(1, ge=1),
-    pageSize: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1),
 ):
     """Get document chunks."""
     result = await db.execute(
