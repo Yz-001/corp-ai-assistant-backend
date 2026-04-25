@@ -2,11 +2,7 @@
 
 from fastapi import APIRouter
 
-<<<<<<< HEAD
-from app.api.v1 import auth, chat, documents, tenants, logs, tools, mcp, dashboard, monitor, health, public
-=======
-from app.api.v1 import auth, chat, documents, tenants, logs, tools, mcp, dashboard, monitor, health, users
->>>>>>> a05ad145450e9d7fbcf51075e7895e735d329a16
+from app.api.v1 import auth, chat, documents, tenants, logs, tools, mcp, dashboard, monitor, health, public, users
 
 api_router = APIRouter()
 

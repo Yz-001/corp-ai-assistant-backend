@@ -195,9 +195,9 @@ async def update_tenant(
     
     if request.name:
         tenant.name = request.name
-    if request.planType:
-        tenant.plan_type = request.planType
-    if request.quotaConfig:
+    if request.plan_type:
+        tenant.plan_type = request.plan_type
+    if request.quota_config:
         tenant.quota_config = request.quota_config
     
     await db.commit()
@@ -249,6 +249,29 @@ async def update_tenant_status(
             updatedAt=tenant.updated_at,
         )
     )
+
+
+@router.delete("/{tenantId}", response_model=BaseResponse)
+async def delete_tenant(
+    tenantId: str,
+    db: DBSession,
+    current_user: SuperUser,
+):
+    """Delete tenant (super admin only)."""
+    result = await db.execute(select(Tenant).where(Tenant.id == tenantId))
+    tenant = result.scalar_one_or_none()
+    
+    if not tenant:
+        raise HTTPException(status_code=404, detail="租户不存在")
+    
+    # Prevent deleting default tenant
+    if tenant.code == "default":
+        raise HTTPException(status_code=400, detail="不能删除默认租户")
+    
+    await db.delete(tenant)
+    await db.commit()
+    
+    return BaseResponse(message="删除成功")
 
 
 @router.get("/{tenantId}/usage", response_model=BaseResponse[TenantUsageResponse])

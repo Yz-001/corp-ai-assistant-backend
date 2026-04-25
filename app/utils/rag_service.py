@@ -215,40 +215,94 @@ class RAGService:
         self.tenant_id = tenant_id
         self.vector_store = get_vector_store()
     
-    async def search_relevant_chunks(self, query: str, top_k: int = 5) -> list[dict]:
-        """Search for relevant document chunks using vector similarity."""
+    async def search_relevant_chunks(
+        self,
+        query: str,
+        top_k: int = 5,
+        visibility: str | None = None,
+    ) -> list[dict]:
+        """Search for relevant document chunks using vector similarity.
+        
+        Args:
+            query: Search query
+            top_k: Number of results to return
+            visibility: Filter by visibility ('public' or None for all)
+        """
         try:
             vector_results = await self.vector_store.search(self.tenant_id, query, top_k=top_k)
             if vector_results:
                 print(f"[RAG] Vector search found {len(vector_results)} results")
                 results = []
+                
+                # If visibility filter is set, get document visibility info
+                doc_visibility = {}
+                if visibility:
+                    doc_ids = set()
+                    for chunk in vector_results:
+                        metadata = chunk.get("metadata", {})
+                        doc_id = metadata.get("document_id", "")
+                        if doc_id:
+                            doc_ids.add(doc_id)
+                    
+                    if doc_ids:
+                        doc_result = await self.db.execute(
+                            select(Document.id, Document.visibility).where(
+                                Document.id.in_(doc_ids)
+                            )
+                        )
+                        for row in doc_result.fetchall():
+                            doc_visibility[row[0]] = row[1]
+                
                 for chunk in vector_results:
                     metadata = chunk.get("metadata", {})
+                    doc_id = metadata.get("document_id", "")
+                    
+                    # Apply visibility filter
+                    if visibility and doc_id:
+                        if doc_visibility.get(doc_id) != visibility:
+                            continue
+                    
                     results.append({
                         "chunk_id": chunk["id"],
-                        "document_id": metadata.get("document_id", ""),
+                        "document_id": doc_id,
                         "document_name": metadata.get("document_name", "Unknown"),
                         "chunk_index": metadata.get("chunk_index", 0),
                         "content": chunk["content"],
                         "score": 1 - chunk.get("distance", 0),
                         "token_count": len(chunk["content"]) // 2,
                     })
-                return results
+                
+                if results:
+                    return results
         except Exception as e:
             print(f"[RAG] Vector search failed: {e}")
         
         # Fallback to database search
         print("[RAG] Falling back to database search")
-        return await self._search_from_database(query, top_k)
+        return await self._search_from_database(query, top_k, visibility)
     
-    async def _search_from_database(self, query: str, top_k: int = 5) -> list[dict]:
-        """Fallback: Search chunks from database using keyword matching."""
-        docs_result = await self.db.execute(
-            select(Document).where(
-                Document.tenant_id == self.tenant_id,
-                Document.status == "completed",
-            )
+    async def _search_from_database(
+        self,
+        query: str,
+        top_k: int = 5,
+        visibility: str | None = None,
+    ) -> list[dict]:
+        """Fallback: Search chunks from database using keyword matching.
+        
+        Args:
+            query: Search query
+            top_k: Number of results to return
+            visibility: Filter by visibility ('public' or None for all)
+        """
+        doc_query = select(Document).where(
+            Document.tenant_id == self.tenant_id,
+            Document.status == "completed",
         )
+        
+        if visibility:
+            doc_query = doc_query.where(Document.visibility == visibility)
+        
+        docs_result = await self.db.execute(doc_query)
         documents = docs_result.scalars().all()
         
         if not documents:
@@ -309,9 +363,17 @@ class RAGService:
         query: str,
         max_chunks: int = 5,
         max_tokens: int = 2000,
+        visibility: str | None = None,
     ) -> tuple[str, list[dict]]:
-        """Build context string from relevant chunks."""
-        chunks = await self.search_relevant_chunks(query, top_k=max_chunks)
+        """Build context string from relevant chunks.
+        
+        Args:
+            query: Search query
+            max_chunks: Maximum number of chunks to include
+            max_tokens: Maximum total tokens
+            visibility: Filter by visibility ('public' or None for all)
+        """
+        chunks = await self.search_relevant_chunks(query, top_k=max_chunks, visibility=visibility)
         
         if not chunks:
             return "", []

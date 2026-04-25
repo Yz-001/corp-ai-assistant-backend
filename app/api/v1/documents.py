@@ -371,6 +371,54 @@ async def get_document(documentId: str, current_user: CurrentUser, db: DBSession
     )
 
 
+@router.patch("/{documentId}", response_model=BaseResponse[DocumentResponse])
+async def update_document(
+    documentId: str, 
+    request: dict, 
+    current_user: CurrentUser, 
+    db: DBSession
+):
+    """Update a document."""
+    result = await db.execute(
+        select(Document).where(
+            Document.id == documentId,
+            Document.tenant_id == current_user.tenant_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Update fields
+    if "name" in request:
+        doc.name = request["name"]
+    if "visibility" in request:
+        doc.visibility = request["visibility"]
+    
+    await db.commit()
+    await db.refresh(doc)
+    
+    return BaseResponse(
+        data=DocumentResponse(
+            documentId=doc.id,
+            name=doc.name,
+            fileName=doc.file_name,
+            fileType=doc.file_type,
+            fileSize=doc.file_size,
+            tenantId=doc.tenant_id,
+            tenantName=None,
+            visibility=doc.visibility,
+            status=doc.status,
+            chunkCount=doc.chunk_count,
+            createdBy=doc.created_by,
+            errorMessage=doc.error_message,
+            createdAt=doc.created_at,
+            updatedAt=doc.updated_at,
+        )
+    )
+
+
 @router.delete("/{documentId}", response_model=BaseResponse)
 async def delete_document(documentId: str, current_user: CurrentUser, db: DBSession):
     """Delete a document."""

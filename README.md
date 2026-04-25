@@ -227,6 +227,74 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 | GET | /redis | Redis健康检查 |
 | GET | /all | 全部服务健康检查 |
 
+### 公开接口 `/api/v1/public`
+无需认证，可对外提供给第三方平台或机器人使用。
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | /precise | 精准回答接口（流式） |
+| POST | /chat | 公开聊天接口（流式） |
+| POST | /search | 知识库搜索接口（Legacy） |
+
+#### `/public/precise` - 精准回答接口
+
+用于机器人/第三方平台调用，返回精确答案。
+
+**特点**：
+- 流式输出（SSE），只返回精确答案
+- 默认只搜索公开知识库
+- 无结果时返回友好提示 + 客服电话
+
+**请求参数**：
+```json
+{
+  "query": "你们公司叫什么",
+  "tenantId": "default",       // 可选，租户ID，默认为 'default'
+  "includePrivate": false      // 可选，是否包含私有库，默认 false
+}
+```
+
+**流式响应**（SSE格式）：
+```
+data: {"event": "token", "data": {"content": "我们"}}
+data: {"event": "token", "data": {"content": "公司"}}
+data: {"event": "token", "data": {"content": "叫迅达物流..."}}
+data: {"event": "done", "data": {"content": "完整回答", "sources": [...]}
+```
+
+**无结果时**：
+```
+data: {"event": "done", "data": {"content": "抱歉，这个问题我暂时无法回答，您可以联系我们的专员为您解答，客服热线：400-882-6688", "sources": []}}
+```
+
+#### `/public/chat` - 公开聊天接口
+
+用于嵌入其他平台的聊天功能，提供完整的聊天体验。
+
+**特点**：
+- 流式输出（SSE），完整的聊天体验
+- 支持多轮对话（通过 sessionId）
+- 默认只搜索公开知识库
+- 复用系统内部聊天逻辑
+
+**请求参数**：
+```json
+{
+  "query": "你们公司叫什么",
+  "tenantId": "default",       // 可选，租户ID，默认为 'default'
+  "sessionId": "xxx",          // 可选，会话ID，用于多轮对话
+  "includePrivate": false      // 可选，是否包含私有库，默认 false
+}
+```
+
+**流式响应**（SSE格式）：
+```
+data: {"event": "start", "data": {"messageId": "xxx"}}
+data: {"event": "token", "data": {"content": "我们"}}
+data: {"event": "token", "data": {"content": "公司"}}
+data: {"event": "done", "data": {"messageId": "xxx", "tokenUsage": {...}, "sources": [...]}}
+```
+
 ## 响应格式
 
 所有API响应格式统一为：

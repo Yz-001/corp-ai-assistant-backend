@@ -1,19 +1,137 @@
-"""Public API endpoints for knowledge base access without authentication."""
+"""Public API endpoints for external access without authentication."""
 
+import json
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.document import Document, DocumentChunk
-from app.utils.rag_service import RAGService
+from app.utils.chat_service import ChatService
 from app.utils.response import BaseResponse
 
 router = APIRouter()
 
+# Default tenant ID for public access
+DEFAULT_TENANT_ID = "default"
+
+# Customer service contact
+CUSTOMER_SERVICE_MESSAGE = "抱歉，这个问题我暂时无法回答，您可以联系我们的专员为您解答，客服热线：400-882-6688"
+
+
+# ==================== Request/Response Models ====================
+
+class PreciseAnswerRequest(BaseModel):
+    """Precise answer request for bot/external platforms."""
+    
+    query: str = Field(..., description="问题内容", min_length=1)
+    tenant_id: str | None = Field(default=None, alias="tenantId", description="租户ID")
+    include_private: bool = Field(default=False, alias="includePrivate", description="是否包含私有库")
+    
+    model_config = {"populate_by_name": True}
+
+
+class PublicChatRequest(BaseModel):
+    """Public chat request."""
+    
+    query: str = Field(..., description="问题内容", min_length=1)
+    tenant_id: str | None = Field(default=None, alias="tenantId", description="租户ID")
+    session_id: str | None = Field(default=None, alias="sessionId", description="会话ID（用于多轮对话）")
+    include_private: bool = Field(default=False, alias="includePrivate", description="是否包含私有库")
+    
+    model_config = {"populate_by_name": True}
+
+
+# ==================== Precise Answer Endpoint ====================
+
+@router.post("/precise")
+async def precise_answer(
+    request: PreciseAnswerRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    精准回答接口 - 用于机器人/第三方平台调用
+    
+    特点：
+    - 流式输出，只返回精确答案
+    - 默认只搜索公开知识库
+    - 无结果时返回友好提示 + 客服电话
+    
+    参数：
+    - query: 问题内容
+    - tenantId: 租户ID（可选，默认为 'default'）
+    - includePrivate: 是否包含私有库（默认 false）
+    """
+    tenant_id = request.tenant_id or DEFAULT_TENANT_ID
+    chat_service = ChatService(db, tenant_id)
+    
+    async def generate_stream():
+        """Generate streaming response."""
+        async for event_data in chat_service.generate_precise_answer(
+            query=request.query,
+            include_private=request.include_private,
+        ):
+            yield f"data: {json.dumps(event_data)}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ==================== Public Chat Endpoint ====================
+
+@router.post("/chat")
+async def public_chat(
+    request: PublicChatRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """
+    公开聊天接口 - 用于嵌入其他平台的聊天功能
+    
+    特点：
+    - 流式输出，完整的聊天体验
+    - 支持多轮对话（通过 sessionId）
+    - 默认只搜索公开知识库
+    - 复用系统内部聊天逻辑
+    
+    参数：
+    - query: 问题内容
+    - tenantId: 租户ID（可选，默认为 'default'）
+    - sessionId: 会话ID（可选，用于多轮对话）
+    - includePrivate: 是否包含私有库（默认 false）
+    """
+    tenant_id = request.tenant_id or DEFAULT_TENANT_ID
+    chat_service = ChatService(db, tenant_id)
+    
+    async def generate_stream():
+        """Generate streaming response."""
+        async for event_data in chat_service.generate_chat_answer(
+            query=request.query,
+            session_id=request.session_id,
+            include_private=request.include_private,
+        ):
+            yield f"data: {json.dumps(event_data)}\n\n"
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ==================== Legacy Search Endpoint (kept for compatibility) ====================
 
 class PublicSearchRequest(BaseModel):
     """Public search request."""
@@ -42,71 +160,12 @@ class PublicSearchResult(BaseModel):
 class PublicSearchResponse(BaseModel):
     """Public search response."""
 
+    answer: str = Field(default="", description="AI generated answer from knowledge base")
     results: list[PublicSearchResult] = Field(default_factory=list, description="Search results")
     total: int = Field(default=0, description="Total number of results")
     query: str = Field(description="Original query")
 
     model_config = {"populate_by_name": True}
-
-
-class PublicDocumentResponse(BaseModel):
-    """Public document response."""
-
-    document_id: str = Field(alias="documentId", description="Document ID")
-    name: str = Field(description="Document name")
-    file_type: str = Field(alias="fileType", description="File type")
-    file_size: int = Field(alias="fileSize", description="File size")
-    tenant_id: str = Field(alias="tenantId", description="Tenant ID")
-    visibility: str = Field(description="Visibility")
-    chunk_count: int = Field(default=0, alias="chunkCount", description="Chunk count")
-    created_at: str = Field(alias="createdAt", description="Created time")
-
-    model_config = {"populate_by_name": True}
-
-
-class PublicDocumentListResponse(BaseModel):
-    """Public document list response."""
-
-    items: list[PublicDocumentResponse] = Field(default_factory=list, description="Document list")
-    total: int = Field(default=0, description="Total count")
-    page_num: int = Field(default=1, alias="pageNum", description="Page number")
-    page_size: int = Field(default=20, alias="pageSize", description="Page size")
-
-    model_config = {"populate_by_name": True}
-
-
-async def get_public_documents(
-    db: AsyncSession,
-    tenant_id: str | None = None,
-    page_num: int = 1,
-    page_size: int = 20,
-    keyword: str | None = None,
-) -> tuple[list[Document], int]:
-    """Get public documents, optionally filtered by tenant."""
-    query = select(Document).where(
-        Document.visibility == "public",
-        Document.status == "completed",
-    )
-    
-    if tenant_id:
-        query = query.where(Document.tenant_id == tenant_id)
-    
-    if keyword:
-        query = query.where(Document.name.ilike(f"%{keyword}%"))
-    
-    # Get total count
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar()
-    
-    # Get paginated results
-    query = query.order_by(Document.created_at.desc())
-    query = query.offset((page_num - 1) * page_size).limit(page_size)
-    
-    result = await db.execute(query)
-    documents = result.scalars().all()
-    
-    return documents, total
 
 
 @router.post("/search", response_model=BaseResponse[PublicSearchResponse])
@@ -115,222 +174,85 @@ async def public_search(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """
-    Search public knowledge base without authentication.
+    Search public knowledge base without authentication (Legacy).
     
-    - If tenantId is provided, search only within that tenant's public documents
-    - If tenantId is not provided, search across all public documents
+    推荐使用 /precise 或 /chat 接口获得更好的体验。
     """
-    # Get all public documents matching the tenant filter
-    documents, _ = await get_public_documents(
-        db, 
-        tenant_id=request.tenant_id,
-        page_num=1,
-        page_size=100,  # Get more documents for broader search
+    from app.models.document import Document, DocumentChunk
+    from app.utils.rag_service import RAGService
+    
+    tenant_id = request.tenant_id or DEFAULT_TENANT_ID
+    
+    # Search using RAG service with public visibility
+    rag_service = RAGService(db, tenant_id)
+    context, sources = await rag_service.build_context(
+        request.query,
+        visibility="public",
+        max_chunks=request.top_k,
     )
     
-    print(f"[Public Search] Found {len(documents)} public documents")
-    
-    if not documents:
+    # If no results, return friendly message
+    if not sources:
         return BaseResponse(
             data=PublicSearchResponse(
+                answer="",
                 results=[],
                 total=0,
                 query=request.query,
             ),
-            message="No public documents found",
+            message=CUSTOMER_SERVICE_MESSAGE,
         )
     
-    # Group documents by tenant for RAG search
-    tenant_docs: dict[str, list[Document]] = {}
-    for doc in documents:
-        if doc.tenant_id not in tenant_docs:
-            tenant_docs[doc.tenant_id] = []
-        tenant_docs[doc.tenant_id].append(doc)
+    # Generate answer using AI
+    answer = ""
+    try:
+        from app.core.config import settings
+        from openai import AsyncOpenAI
+        
+        if settings.openai_api_key:
+            client = AsyncOpenAI(
+                api_key=settings.openai_api_key,
+                base_url=settings.openai_base_url,
+            )
+            
+            prompt = f"""请根据以下参考资料回答用户的问题。要求回答简洁准确，直接提取关键信息回答。
+
+参考资料：
+{context}
+
+用户问题：{request.query}
+
+请直接回答："""
+            
+            response = await client.chat.completions.create(
+                model=settings.llm_model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.7,
+            )
+            answer = response.choices[0].message.content or ""
+    except Exception as e:
+        print(f"[Public Search] Error generating answer: {e}")
     
-    all_results = []
-    public_doc_ids = {d.id for d in documents}
-    
-    # Search in each tenant's collection
-    for tenant_id, docs in tenant_docs.items():
-        try:
-            rag_service = RAGService(db, tenant_id)
-            chunks = await rag_service.search_relevant_chunks(request.query, top_k=request.top_k)
-            
-            print(f"[Public Search] Tenant {tenant_id}: found {len(chunks)} chunks from RAG")
-            
-            # Filter to only include public documents
-            for chunk in chunks:
-                doc_id = chunk.get("document_id", "")
-                if doc_id in public_doc_ids:
-                    # Add tenant_id to chunk data
-                    chunk["tenant_id"] = tenant_id
-                    all_results.append(chunk)
-                    print(f"[Public Search] Added chunk from doc: {doc_id}")
-        except Exception as e:
-            print(f"[Public Search] Error searching tenant {tenant_id}: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-    
-    # If no results from RAG, fallback to direct database search on public docs
-    if not all_results:
-        print("[Public Search] No results from RAG, falling back to direct database search")
-        try:
-            # Get chunks from public documents directly
-            chunk_query = select(DocumentChunk).where(
-                DocumentChunk.document_id.in_(public_doc_ids)
-            ).limit(request.top_k)
-            
-            result = await db.execute(chunk_query)
-            chunks = result.scalars().all()
-            
-            print(f"[Public Search] Found {len(chunks)} chunks directly from database")
-            
-            # Build doc_id to doc mapping
-            doc_map = {d.id: d for d in documents}
-            
-            for chunk in chunks:
-                doc = doc_map.get(chunk.document_id)
-                all_results.append({
-                    "chunk_id": chunk.id,
-                    "document_id": chunk.document_id,
-                    "document_name": doc.name if doc else "Unknown",
-                    "chunk_index": chunk.chunk_index,
-                    "content": chunk.content,
-                    "score": 0.5,  # Default score for fallback results
-                    "tenant_id": doc.tenant_id if doc else "",
-                })
-        except Exception as e:
-            print(f"[Public Search] Error in fallback search: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    # Sort by score and limit results
-    all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
-    all_results = all_results[:request.top_k]
-    
-    # Build response
+    # Build results
     results = [
         PublicSearchResult(
-            chunk_id=r.get("chunk_id", ""),
-            document_id=r.get("document_id", ""),
-            document_name=r.get("document_name", "Unknown"),
-            chunk_index=r.get("chunk_index", 0),
-            content=r.get("content", ""),
-            score=r.get("score", 0),
-            tenant_id=r.get("tenant_id", ""),
+            chunk_id=s.get("chunkId", ""),
+            document_id=s.get("documentId", ""),
+            document_name=s.get("documentName", "Unknown"),
+            chunk_index=s.get("chunkIndex", 0),
+            content=s.get("content", ""),
+            score=0.8,
+            tenant_id=tenant_id,
         )
-        for r in all_results
+        for s in sources
     ]
     
     return BaseResponse(
         data=PublicSearchResponse(
+            answer=answer,
             results=results,
             total=len(results),
             query=request.query,
         ),
-    )
-
-
-@router.get("/documents", response_model=BaseResponse[PublicDocumentListResponse])
-async def list_public_documents(
-    db: Annotated[AsyncSession, Depends(get_db)],
-    tenantId: str | None = Query(default=None, description="Filter by tenant ID"),
-    pageNum: int = Query(default=1, ge=1, description="Page number"),
-    pageSize: int = Query(default=20, ge=1, le=100, description="Page size"),
-    keyword: str | None = Query(default=None, description="Search keyword"),
-):
-    """
-    List public documents without authentication.
-    
-    - If tenantId is provided, list only that tenant's public documents
-    - If tenantId is not provided, list all public documents
-    """
-    documents, total = await get_public_documents(
-        db,
-        tenant_id=tenantId,
-        page_num=pageNum,
-        page_size=pageSize,
-        keyword=keyword,
-    )
-    
-    items = [
-        PublicDocumentResponse(
-            document_id=d.id,
-            name=d.name,
-            file_type=d.file_type,
-            file_size=d.file_size,
-            tenant_id=d.tenant_id,
-            visibility=d.visibility,
-            chunk_count=d.chunk_count,
-            created_at=d.created_at.isoformat() if d.created_at else "",
-        )
-        for d in documents
-    ]
-    
-    return BaseResponse(
-        data=PublicDocumentListResponse(
-            items=items,
-            total=total,
-            page_num=pageNum,
-            page_size=pageSize,
-        ),
-    )
-
-
-@router.get("/documents/{documentId}/chunks", response_model=BaseResponse)
-async def get_public_document_chunks(
-    documentId: str,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    pageNum: int = Query(default=1, ge=1, description="Page number"),
-    pageSize: int = Query(default=20, ge=1, le=100, description="Page size"),
-):
-    """
-    Get chunks of a public document without authentication.
-    
-    Only returns chunks if the document is public.
-    """
-    # First verify the document is public
-    result = await db.execute(
-        select(Document).where(
-            Document.id == documentId,
-            Document.visibility == "public",
-            Document.status == "completed",
-        )
-    )
-    doc = result.scalar_one_or_none()
-    
-    if doc is None:
-        raise HTTPException(status_code=404, detail="Public document not found")
-    
-    # Get chunks
-    query = select(DocumentChunk).where(DocumentChunk.document_id == documentId)
-    
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar()
-    
-    query = query.order_by(DocumentChunk.chunk_index.asc())
-    query = query.offset((pageNum - 1) * pageSize).limit(pageSize)
-    
-    result = await db.execute(query)
-    chunks = result.scalars().all()
-    
-    items = [
-        {
-            "chunkId": c.id,
-            "chunkIndex": c.chunk_index,
-            "content": c.content,
-            "tokenCount": c.token_count,
-        }
-        for c in chunks
-    ]
-    
-    return BaseResponse(
-        data={
-            "items": items,
-            "total": total,
-            "pageNum": pageNum,
-            "pageSize": pageSize,
-        },
     )
