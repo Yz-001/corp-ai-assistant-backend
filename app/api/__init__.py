@@ -2,9 +2,12 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, chat, documents, tenants, logs, tools, mcp, dashboard, monitor, health
+from app.api.v1 import auth, chat, documents, tenants, logs, tools, mcp, dashboard, monitor, health, public
 
 api_router = APIRouter()
+
+# Public routes (no authentication required)
+api_router.include_router(public.router, prefix="/public", tags=["public"])
 
 # Auth routes
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])

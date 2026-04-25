@@ -22,7 +22,14 @@ class Settings(BaseSettings):
     app_name: str = "AI Enterprise Assistant"
     app_env: Literal["dev", "test", "prod"] = "dev"
     app_port: int = 8000
-    debug: bool = False
+    # Accept both bool and string values for debug
+    debug: bool | str = False
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Convert string debug value to bool
+        if isinstance(self.debug, str):
+            self.debug = self.debug.lower() in ("true", "1", "yes")
 
     # Database
     postgres_dsn: PostgresDsn = Field(
