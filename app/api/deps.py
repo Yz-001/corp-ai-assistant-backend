@@ -125,5 +125,6 @@ def get_user_info(user: User, tenant: Tenant | None = None) -> UserInfoResponse:
 CurrentUser = Annotated[User, Depends(get_current_user)]
 ActiveUser = Annotated[User, Depends(get_current_active_user)]
 SuperUser = Annotated[User, Depends(get_superuser)]
+SuperAdmin = SuperUser  # Alias for compatibility
 TenantAdmin = Annotated[User, Depends(get_tenant_admin)]
 DBSession = Annotated[AsyncSession, Depends(get_db)]

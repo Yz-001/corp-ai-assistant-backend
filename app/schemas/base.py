@@ -40,8 +40,8 @@ class SourceReference(BaseModel):
 
     document_id: str = Field(alias="documentId", description="Document ID")
     document_name: str = Field(alias="documentName", description="Document name")
-    chunk_id: str = Field(alias="chunkId", description="Chunk ID")
-    chunk_index: int = Field(alias="chunkIndex", description="Chunk index")
+    chunk_id: str | None = Field(default=None, alias="chunkId", description="Chunk ID")
+    chunk_index: int | None = Field(default=None, alias="chunkIndex", description="Chunk index")
     snippet: str = Field(default="", description="Text snippet")
     score: float = Field(default=0.0, description="Relevance score")
 
