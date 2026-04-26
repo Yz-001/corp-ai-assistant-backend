@@ -227,19 +227,30 @@ async def upload_document(
         
         target_tenant_id = tenantId
     
-    # Validate file type
+    # Validate file type by both content_type and file extension
     allowed_types = ["application/pdf", "application/msword", 
                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                      "text/plain", "text/markdown"]
-    if file.content_type not in allowed_types:
+    allowed_extensions = [".pdf", ".doc", ".docx", ".txt", ".md"]
+    
+    # Get file extension from filename
+    file_extension = ""
+    if file.filename:
+        file_extension = Path(file.filename).suffix.lower()
+    
+    # Check if either content_type or file extension is valid
+    content_type_valid = file.content_type in allowed_types
+    extension_valid = file_extension in allowed_extensions
+    
+    if not content_type_valid and not extension_valid:
         raise HTTPException(status_code=400, detail="不支持的文件类型，仅支持 PDF、Word、TXT、Markdown 格式")
     
     # Read file content
     content = await file.read()
     file_size = len(content)
     
-    # Generate storage path
-    file_ext = get_file_extension(file.content_type or "")
+    # Generate storage path - prefer extension from filename over content_type
+    file_ext = file_extension if file_extension else get_file_extension(file.content_type or "")
     storage_name = f"{generate_id()}{file_ext}"
     storage_path = UPLOAD_DIR / storage_name
     
@@ -290,9 +301,21 @@ async def get_documents(
     keyword: str | None = Query(None),
     status: str | None = Query(None),
     fileType: str | None = Query(None),
+    tenantId: str | None = Query(None, description="Filter by tenant ID (super admin only)"),
 ):
-    """Get documents list."""
-    query = select(Document).where(Document.tenant_id == current_user.tenant_id)
+    """Get documents list.
+    
+    - Regular users: see documents from their own tenant
+    - Super admin: see all documents, can filter by tenantId
+    """
+    query = select(Document)
+    
+    # Super admin can see all documents, regular users only see their tenant's
+    if current_user.role != "super_admin":
+        query = query.where(Document.tenant_id == current_user.tenant_id)
+    elif tenantId:
+        # Super admin can filter by tenant
+        query = query.where(Document.tenant_id == tenantId)
     
     if keyword:
         query = query.where(Document.name.ilike(f"%{keyword}%"))
@@ -339,13 +362,18 @@ async def get_documents(
 
 @router.get("/{documentId}", response_model=BaseResponse[DocumentResponse])
 async def get_document(documentId: str, current_user: CurrentUser, db: DBSession):
-    """Get document details."""
-    result = await db.execute(
-        select(Document).where(
-            Document.id == documentId,
-            Document.tenant_id == current_user.tenant_id,
-        )
-    )
+    """Get document details.
+    
+    - Regular users: can only access documents from their own tenant
+    - Super admin: can access any document
+    """
+    query = select(Document).where(Document.id == documentId)
+    
+    # Regular users can only access their own tenant's documents
+    if current_user.role != "super_admin":
+        query = query.where(Document.tenant_id == current_user.tenant_id)
+    
+    result = await db.execute(query)
     doc = result.scalar_one_or_none()
     
     if doc is None:
@@ -378,13 +406,18 @@ async def update_document(
     current_user: CurrentUser, 
     db: DBSession
 ):
-    """Update a document."""
-    result = await db.execute(
-        select(Document).where(
-            Document.id == documentId,
-            Document.tenant_id == current_user.tenant_id,
-        )
-    )
+    """Update a document.
+    
+    - Regular users: can only update documents from their own tenant
+    - Super admin: can update any document
+    """
+    query = select(Document).where(Document.id == documentId)
+    
+    # Regular users can only access their own tenant's documents
+    if current_user.role != "super_admin":
+        query = query.where(Document.tenant_id == current_user.tenant_id)
+    
+    result = await db.execute(query)
     doc = result.scalar_one_or_none()
     
     if doc is None:
@@ -421,13 +454,18 @@ async def update_document(
 
 @router.delete("/{documentId}", response_model=BaseResponse)
 async def delete_document(documentId: str, current_user: CurrentUser, db: DBSession):
-    """Delete a document."""
-    result = await db.execute(
-        select(Document).where(
-            Document.id == documentId,
-            Document.tenant_id == current_user.tenant_id,
-        )
-    )
+    """Delete a document.
+    
+    - Regular users: can only delete documents from their own tenant
+    - Super admin: can delete any document
+    """
+    query = select(Document).where(Document.id == documentId)
+    
+    # Regular users can only access their own tenant's documents
+    if current_user.role != "super_admin":
+        query = query.where(Document.tenant_id == current_user.tenant_id)
+    
+    result = await db.execute(query)
     doc = result.scalar_one_or_none()
     
     if doc is None:
@@ -441,13 +479,18 @@ async def delete_document(documentId: str, current_user: CurrentUser, db: DBSess
 
 @router.post("/{documentId}/retry", response_model=BaseResponse)
 async def retry_document(documentId: str, current_user: CurrentUser, db: DBSession):
-    """Retry document processing."""
-    result = await db.execute(
-        select(Document).where(
-            Document.id == documentId,
-            Document.tenant_id == current_user.tenant_id,
-        )
-    )
+    """Retry document processing.
+    
+    - Regular users: can only retry documents from their own tenant
+    - Super admin: can retry any document
+    """
+    query = select(Document).where(Document.id == documentId)
+    
+    # Regular users can only access their own tenant's documents
+    if current_user.role != "super_admin":
+        query = query.where(Document.tenant_id == current_user.tenant_id)
+    
+    result = await db.execute(query)
     doc = result.scalar_one_or_none()
     
     if doc is None:
@@ -473,13 +516,18 @@ async def get_document_chunks(
     pageNum: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1),
 ):
-    """Get document chunks."""
-    result = await db.execute(
-        select(Document).where(
-            Document.id == documentId,
-            Document.tenant_id == current_user.tenant_id,
-        )
-    )
+    """Get document chunks.
+    
+    - Regular users: can only access chunks from their own tenant's documents
+    - Super admin: can access any document's chunks
+    """
+    query = select(Document).where(Document.id == documentId)
+    
+    # Regular users can only access their own tenant's documents
+    if current_user.role != "super_admin":
+        query = query.where(Document.tenant_id == current_user.tenant_id)
+    
+    result = await db.execute(query)
     doc = result.scalar_one_or_none()
     
     if doc is None:
