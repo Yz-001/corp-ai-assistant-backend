@@ -50,7 +50,11 @@ from app.schemas.mcp import (
     MCPServerCreate,
     MCPServerUpdate,
     MCPServerResponse,
+    MCPServerTestResponse,
     MCPToolResponse,
+    MCPToolDiscoverResponse,
+    MCPToolBindTenantsRequest,
+    MCPServerStatusUpdate,
 )
 from app.schemas.dashboard import (
     DashboardOverviewResponse,
@@ -113,7 +117,11 @@ __all__ = [
     "MCPServerCreate",
     "MCPServerUpdate",
     "MCPServerResponse",
+    "MCPServerTestResponse",
     "MCPToolResponse",
+    "MCPToolDiscoverResponse",
+    "MCPToolBindTenantsRequest",
+    "MCPServerStatusUpdate",
     # Dashboard
     "DashboardOverviewResponse",
     "TrendResponse",

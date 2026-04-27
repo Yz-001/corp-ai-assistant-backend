@@ -10,9 +10,16 @@ class MCPServerCreate(BaseModel):
     """Create MCP server request."""
 
     name: str = Field(min_length=1, max_length=100, description="Server name")
-    base_url: str = Field(alias="baseUrl", description="Server base URL")
+    transport_type: str = Field(default="stdio", alias="transportType", description="Transport type: stdio, sse, websocket")
+    # For stdio transport
+    command: str | None = Field(default=None, description="Command to run (for stdio)")
+    args: list[str] | None = Field(default=None, description="Command arguments")
+    env: dict[str, str] | None = Field(default=None, description="Environment variables")
+    # For HTTP/SSE transport
+    base_url: str | None = Field(default=None, alias="baseUrl", description="Server base URL (for sse/websocket)")
     auth_type: str = Field(default="none", alias="authType", description="Auth type: none, bearer, basic, api_key")
     auth_config: dict[str, Any] | None = Field(default=None, alias="authConfig", description="Auth configuration")
+    # Common
     timeout_seconds: int = Field(default=20, alias="timeoutSeconds", description="Timeout in seconds")
     description: str | None = Field(default=None, description="Server description")
 
@@ -23,11 +30,15 @@ class MCPServerUpdate(BaseModel):
     """Update MCP server request."""
 
     name: str | None = Field(default=None, max_length=100, description="Server name")
-    base_url: str | None = Field(default=None, alias="baseUrl", description="Server base URL")
+    transport_type: str | None = Field(default=None, alias="transportType", description="Transport type")
+    command: str | None = Field(default=None, description="Command")
+    args: list[str] | None = Field(default=None, description="Arguments")
+    env: dict[str, str] | None = Field(default=None, description="Environment")
+    base_url: str | None = Field(default=None, alias="baseUrl", description="Base URL")
     auth_type: str | None = Field(default=None, alias="authType", description="Auth type")
-    auth_config: dict[str, Any] | None = Field(default=None, alias="authConfig", description="Auth configuration")
+    auth_config: dict[str, Any] | None = Field(default=None, alias="authConfig", description="Auth config")
     timeout_seconds: int | None = Field(default=None, alias="timeoutSeconds", description="Timeout")
-    description: str | None = Field(default=None, description="Server description")
+    description: str | None = Field(default=None, description="Description")
 
     model_config = {"populate_by_name": True}
 
@@ -37,11 +48,18 @@ class MCPServerResponse(BaseModel):
 
     server_id: str = Field(alias="serverId", description="Server ID")
     name: str = Field(description="Server name")
-    base_url: str = Field(alias="baseUrl", description="Server base URL")
+    transport_type: str = Field(alias="transportType", description="Transport type")
+    # For stdio
+    command: str | None = Field(default=None, description="Command")
+    args: list[str] | None = Field(default=None, description="Arguments")
+    env: dict[str, str] | None = Field(default=None, description="Environment")
+    # For HTTP
+    base_url: str | None = Field(default=None, alias="baseUrl", description="Base URL")
     auth_type: str = Field(alias="authType", description="Auth type")
+    # Common
     status: str = Field(description="Status: enabled, disabled")
     timeout_seconds: int = Field(alias="timeoutSeconds", description="Timeout")
-    description: str | None = Field(default=None, description="Server description")
+    description: str | None = Field(default=None, description="Description")
     last_check_at: datetime | None = Field(default=None, alias="lastCheckAt", description="Last check time")
     last_check_status: str = Field(alias="lastCheckStatus", description="Last check status")
     tool_count: int = Field(default=0, alias="toolCount", description="Tool count")

@@ -16,13 +16,24 @@ class MCPServer(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    base_url: Mapped[str] = mapped_column(String(255), nullable=False)
+    transport_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="stdio",
+    )  # stdio, sse, websocket
+    # For stdio transport
+    command: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    args: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    env: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # For HTTP/SSE transport
+    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     auth_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
         default="none",
     )  # none, bearer, basic, api_key
     auth_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Common fields
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

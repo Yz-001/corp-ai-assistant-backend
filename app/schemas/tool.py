@@ -11,7 +11,7 @@ class ToolCreate(BaseModel):
 
     code: str = Field(min_length=1, max_length=50, description="Tool code")
     name: str = Field(min_length=1, max_length=100, description="Tool name")
-    type: str = Field(description="Tool type: internal_api, database_query, http_service, mcp_tool")
+    type: str = Field(description="Tool type: internal_api, database_query, http_service, web_scraper, mcp_tool")
     description: str | None = Field(default=None, description="Tool description")
     config: dict[str, Any] | None = Field(default=None, description="Tool configuration")
 

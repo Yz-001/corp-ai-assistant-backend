@@ -192,6 +192,46 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 | PATCH | /{toolId} | 更新工具 |
 | PATCH | /{toolId}/status | 更新工具状态 |
 | GET | /{toolId}/stats | 获取工具调用统计 |
+| POST | /{toolId}/permissions | 授权工具给租户（超管） |
+| DELETE | /{toolId}/permissions | 撤销租户工具授权 |
+| GET | /{toolId}/permissions | 获取工具的租户权限列表 |
+| POST | /init | 将工具分配给租户 |
+
+#### 工具类型说明
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| `http_service` | 调用外部HTTP API | 天气API、翻译API |
+| `web_scraper` | 网页爬取 | 爬取网页内容、提取链接 |
+| `database_query` | 数据库查询 | 查询业务数据 |
+| `internal_api` | 内部API | 系统内部接口 |
+| `mcp_tool` | MCP工具 | 文件系统、GitHub等 |
+
+#### 创建工具示例
+
+```json
+// 网页爬取工具
+{
+  "code": "web_scraper",
+  "name": "网页爬取",
+  "type": "web_scraper",
+  "description": "爬取网页内容，参数：url(必填)"
+}
+
+// HTTP服务工具
+{
+  "code": "weather_api",
+  "name": "天气查询",
+  "type": "http_service",
+  "description": "查询城市天气",
+  "config": {
+    "url": "https://wttr.in/{city}?format=j1",
+    "method": "GET",
+    "headers": {"User-Agent": "curl"},
+    "timeout": 10
+  }
+}
+```
 
 ### MCP服务器 `/api/v1/admin/mcp`
 | 方法 | 路径 | 描述 |
@@ -200,11 +240,107 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 | POST | /servers | 创建MCP服务器 |
 | GET | /servers/{serverId} | 获取服务器详情 |
 | PATCH | /servers/{serverId} | 更新服务器 |
-| DELETE | /servers/{serverId} | 删除服务器 |
-| GET | /servers/{serverId}/status | 获取服务器连接状态 |
+| DELETE | /servers/{serverId} | 删除服务器（同时删除关联工具） |
+| POST | /servers/{serverId}/test | 测试服务器连接 |
+| PATCH | /servers/{serverId}/status | 更新服务器状态 |
 | POST | /servers/{serverId}/discover-tools | 发现服务器工具 |
 | GET | /tools | 获取MCP工具列表 |
 | POST | /tools/{toolId}/bind-tenants | 绑定工具到租户 |
+
+#### MCP数据结构
+
+**MCPServer 字段说明**：
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| serverId | string | 服务器ID |
+| name | string | 服务器名称 |
+| transportType | string | 传输类型：stdio, sse, websocket |
+| command | string | 命令（stdio方式） |
+| args | array | 命令参数（stdio方式） |
+| env | object | 环境变量（stdio方式） |
+| baseUrl | string | 服务器URL（SSE/HTTP方式） |
+| authType | string | 认证类型：none, bearer, basic, api_key |
+| authConfig | object | 认证配置 |
+| timeoutSeconds | int | 超时时间（秒） |
+| status | string | 状态：enabled, disabled |
+| lastCheckAt | datetime | 最后检查时间 |
+| lastCheckStatus | string | 最后检查状态：success, failed, unknown |
+| toolCount | int | 工具数量 |
+
+**创建stdio MCP服务器（文件系统）**：
+```json
+{
+  "name": "文件系统",
+  "transportType": "stdio",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+  "timeoutSeconds": 20
+}
+```
+
+**创建HTTP MCP服务器**：
+```json
+{
+  "name": "GitHub MCP",
+  "transportType": "sse",
+  "baseUrl": "http://localhost:3001",
+  "authType": "bearer",
+  "authConfig": {"token": "ghp_xxx"},
+  "timeoutSeconds": 20
+}
+```
+
+**MCP工具响应**：
+```json
+{
+  "toolId": "xxx",
+  "serverId": "xxx",
+  "name": "create_issue",
+  "description": "创建GitHub Issue",
+  "inputSchema": {...},
+  "enabled": true
+}
+```
+
+#### MCP使用流程
+
+**stdio方式（文件系统示例）**：
+```bash
+# 1. 创建MCP服务器
+POST /api/v1/admin/mcp/servers
+{
+  "name": "文件系统",
+  "transportType": "stdio",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+}
+
+# 2. 测试连接
+POST /api/v1/admin/mcp/servers/{serverId}/test
+# 返回：{"success": true, "message": "连接成功", "latencyMs": 50}
+
+# 3. 发现工具
+POST /api/v1/admin/mcp/servers/{serverId}/discover-tools
+# 返回：{"toolList": [{"toolCode": "read_file", "name": "读取文件", ...}]}
+
+# 4. 绑定工具到租户
+POST /api/v1/admin/mcp/tools/{toolId}/bind-tenants
+{"tenantIds": ["tenant_id_1", "tenant_id_2"]}
+```
+
+**HTTP/SSE方式**：
+```bash
+# 1. 创建MCP服务器
+POST /api/v1/admin/mcp/servers
+{
+  "name": "GitHub MCP",
+  "transportType": "sse",
+  "baseUrl": "http://localhost:3001",
+  "authType": "none"
+}
+
+# 2-4步同上
+```
 
 ### 仪表盘 `/api/v1/admin/dashboard`
 | 方法 | 路径 | 描述 |

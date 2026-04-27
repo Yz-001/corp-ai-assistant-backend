@@ -417,3 +417,65 @@ async def get_tool_stats(
             errorRate=round(errors / total * 100, 2) if total > 0 else 0,
         )
     )
+
+
+@router.post("/init", response_model=BaseResponse[dict[str, Any]])
+async def init_tools_for_tenant(
+    toolId: str,
+    db: DBSession,
+    current_user: TenantAdmin,
+):
+    """将指定工具分配给当前租户（超管则分配给所有租户）"""
+    from app.models.tenant import Tenant
+    from app.models.user import User
+    
+    # 获取工具
+    result = await db.execute(select(ToolDefinition).where(ToolDefinition.id == toolId))
+    tool = result.scalar_one_or_none()
+    
+    if not tool:
+        raise HTTPException(status_code=404, detail="工具不存在")
+    
+    assigned_count = 0
+    
+    # 判断是否超管
+    user_result = await db.execute(select(User).where(User.id == current_user.id))
+    user = user_result.scalar_one_or_none()
+    
+    if user and user.is_superuser:
+        # 超管：分配给所有租户
+        tenants = await db.execute(select(Tenant))
+        tenant_list = tenants.scalars().all()
+        target_ids = [t.id for t in tenant_list]
+    else:
+        # 普通管理员：只分配给自己的租户
+        target_ids = [current_user.tenant_id]
+    
+    for tenant_id in target_ids:
+        # 检查是否已有权限
+        perm_exists = await db.execute(
+            select(TenantToolPermission).where(
+                TenantToolPermission.tenant_id == tenant_id,
+                TenantToolPermission.tool_id == tool.id,
+            )
+        )
+        if not perm_exists.scalar_one_or_none():
+            permission = TenantToolPermission(
+                id=generate_id(),
+                tenant_id=tenant_id,
+                tool_id=tool.id,
+                enabled=True,
+            )
+            db.add(permission)
+            assigned_count += 1
+    
+    await db.commit()
+    
+    return BaseResponse(
+        data={
+            "tool_id": tool.id,
+            "tool_name": tool.name,
+            "assigned_count": assigned_count,
+            "message": f"成功为 {assigned_count} 个租户分配工具 '{tool.name}'"
+        }
+    )

@@ -87,6 +87,9 @@ class ToolExecutor:
             elif tool.type == "http_service":
                 print("[TOOL]    调用HTTP服务...")
                 result_data = await self._execute_http_service(tool, arguments)
+            elif tool.type == "web_scraper":
+                print("[TOOL]    执行网页爬取...")
+                result_data = await self._execute_web_scraper(tool, arguments)
             elif tool.type == "mcp_tool":
                 print("[TOOL]    调用MCP工具...")
                 result_data = await self._execute_mcp_tool(tool, arguments)
@@ -166,6 +169,124 @@ class ToolExecutor:
                 "arguments": arguments,
             }
         }
+
+    async def _execute_web_scraper(
+        self, tool: ToolDefinition, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Execute web scraper tool - fetch and extract content from web pages."""
+        import re
+        from urllib.parse import urljoin, urlparse
+        
+        url = arguments.get("url")
+        selector = arguments.get("selector", "body")  # CSS selector or "body" for all
+        extract_text = arguments.get("extract_text", True)
+        
+        if not url:
+            return {"success": False, "error": "缺少url参数"}
+        
+        # Validate URL
+        try:
+            parsed = urlparse(url)
+            if not parsed.scheme or not parsed.netloc:
+                return {"success": False, "error": "无效的URL格式"}
+        except Exception:
+            return {"success": False, "error": "无效的URL"}
+        
+        print(f"[TOOL]    爬取URL: {url}")
+        print(f"[TOOL]    选择器: {selector}")
+        
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            }
+            
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                response = await client.get(url, headers=headers)
+                
+                if response.status_code != 200:
+                    return {
+                        "success": False,
+                        "error": f"HTTP请求失败: {response.status_code}",
+                        "status_code": response.status_code,
+                    }
+                
+                content_type = response.headers.get("content-type", "")
+                if "text/html" not in content_type and "text/plain" not in content_type:
+                    return {
+                        "success": False,
+                        "error": f"不支持的内容类型: {content_type}",
+                    }
+                
+                html = response.text
+                print(f"[TOOL]    获取到HTML长度: {len(html)}")
+                
+                # Simple HTML parsing without BeautifulSoup
+                # Extract title
+                title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE | re.DOTALL)
+                title = title_match.group(1).strip() if title_match else ""
+                
+                # Remove script and style tags
+                clean_html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.IGNORECASE | re.DOTALL)
+                clean_html = re.sub(r'<style[^>]*>.*?</style>', '', clean_html, flags=re.IGNORECASE | re.DOTALL)
+                clean_html = re.sub(r'<!--.*?-->', '', clean_html, flags=re.DOTALL)
+                
+                # Extract text content
+                if extract_text:
+                    # Remove HTML tags
+                    text = re.sub(r'<[^>]+>', ' ', clean_html)
+                    # Clean up whitespace
+                    text = re.sub(r'\s+', ' ', text)
+                    text = text.strip()
+                    # Limit length
+                    max_length = 5000
+                    if len(text) > max_length:
+                        text = text[:max_length] + "..."
+                else:
+                    text = clean_html
+                
+                # Extract links
+                links = []
+                link_pattern = r'<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>'
+                for match in re.finditer(link_pattern, html, re.IGNORECASE | re.DOTALL):
+                    href = match.group(1)
+                    link_text = re.sub(r'<[^>]+>', '', match.group(2)).strip()
+                    if href and not href.startswith('#') and not href.startswith('javascript:'):
+                        full_url = urljoin(url, href)
+                        links.append({
+                            "url": full_url,
+                            "text": link_text[:100] if link_text else full_url[:100],
+                        })
+                
+                # Extract meta description
+                desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+                description = desc_match.group(1) if desc_match else ""
+                
+                result = {
+                    "success": True,
+                    "data": {
+                        "url": str(response.url),  # Final URL after redirects
+                        "title": title,
+                        "description": description,
+                        "content": text,
+                        "links": links[:20],  # Limit to 20 links
+                        "status_code": response.status_code,
+                    }
+                }
+                
+                print(f"[TOOL]    提取标题: {title}")
+                print(f"[TOOL]    内容长度: {len(text)}")
+                print(f"[TOOL]    链接数: {len(links)}")
+                
+                return result
+                
+        except httpx.TimeoutException:
+            return {"success": False, "error": "请求超时"}
+        except httpx.RequestError as e:
+            return {"success": False, "error": f"请求失败: {str(e)}"}
+        except Exception as e:
+            return {"success": False, "error": f"解析失败: {str(e)}"}
 
     async def _execute_database_query(
         self, tool: ToolDefinition, arguments: dict[str, Any]
@@ -250,23 +371,205 @@ class ToolExecutor:
     async def _execute_mcp_tool(
         self, tool: ToolDefinition, arguments: dict[str, Any]
     ) -> dict[str, Any]:
-        """Execute MCP tool."""
+        """Execute MCP tool via stdio or HTTP."""
+        import asyncio
+        
         config = tool.config or {}
         server_id = config.get("server_id")
-        tool_name = config.get("tool_name")
+        transport_type = config.get("transport_type", "stdio")
+        tool_name = tool.code  # Use tool code as MCP tool name
         
-        if not server_id or not tool_name:
-            return {"success": False, "error": "工具配置缺少server_id或tool_name"}
+        print(f"[TOOL]    MCP工具: {tool_name}")
+        print(f"[TOOL]    Server ID: {server_id}")
+        print(f"[TOOL]    Transport: {transport_type}")
+        print(f"[TOOL]    Arguments: {arguments}")
         
-        # MCP tool execution would be handled by MCP service
-        # For now, return a placeholder response
-        return {
-            "success": True,
-            "data": {
-                "message": f"MCP tool {tool_name} on server {server_id} called",
-                "arguments": arguments,
+        if transport_type == "stdio":
+            # Execute via stdio
+            command = config.get("command")
+            args = config.get("args", [])
+            env = config.get("env")
+            timeout = config.get("timeout", 30)
+            
+            if not command:
+                return {"success": False, "error": "MCP工具配置缺少command"}
+            
+            try:
+                result = await self._execute_mcp_stdio(
+                    command, args, env, tool_name, arguments, timeout
+                )
+                return result
+            except Exception as e:
+                return {"success": False, "error": f"MCP调用失败: {str(e)}"}
+        
+        else:
+            # Execute via HTTP/SSE
+            base_url = config.get("base_url")
+            auth_type = config.get("auth_type", "none")
+            auth_config = config.get("auth_config", {})
+            
+            if not base_url:
+                return {"success": False, "error": "MCP工具配置缺少base_url"}
+            
+            try:
+                result = await self._execute_mcp_http(
+                    base_url, auth_type, auth_config, tool_name, arguments
+                )
+                return result
+            except Exception as e:
+                return {"success": False, "error": f"MCP HTTP调用失败: {str(e)}"}
+    
+    async def _execute_mcp_stdio(
+        self,
+        command: str,
+        args: list,
+        env: dict | None,
+        tool_name: str,
+        arguments: dict,
+        timeout: int = 30,
+    ) -> dict[str, Any]:
+        """Execute MCP tool via stdio transport."""
+        import asyncio
+        import json
+        
+        print(f"[TOOL]    启动stdio进程: {command} {args}")
+        
+        # Build env with current environment
+        import os
+        process_env = os.environ.copy()
+        if env:
+            process_env.update(env)
+        
+        process = await asyncio.create_subprocess_exec(
+            command,
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=process_env,
+        )
+        
+        try:
+            # 1. Initialize
+            init_request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "ai-assistant", "version": "1.0"}
+                }
             }
-        }
+            
+            process.stdin.write((json.dumps(init_request) + "\n").encode())
+            await process.stdin.drain()
+            
+            # Read initialize response
+            response_line = await asyncio.wait_for(
+                process.stdout.readline(),
+                timeout=timeout
+            )
+            response = json.loads(response_line.decode().strip())
+            
+            if "error" in response:
+                process.terminate()
+                await process.wait()
+                return {"success": False, "error": response["error"].get("message", "初始化失败")}
+            
+            # 2. Send initialized notification
+            initialized_notification = {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+            }
+            process.stdin.write((json.dumps(initialized_notification) + "\n").encode())
+            await process.stdin.drain()
+            
+            # 3. Call the tool
+            call_request = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments,
+                }
+            }
+            
+            print(f"[TOOL]    发送工具调用: {json.dumps(call_request)}")
+            process.stdin.write((json.dumps(call_request) + "\n").encode())
+            await process.stdin.drain()
+            
+            # Read tool response
+            response_line = await asyncio.wait_for(
+                process.stdout.readline(),
+                timeout=timeout
+            )
+            response = json.loads(response_line.decode().strip())
+            
+            print(f"[TOOL]    收到响应: {response}")
+            
+            process.terminate()
+            await process.wait()
+            
+            if "result" in response:
+                return {
+                    "success": True,
+                    "data": response["result"].get("content", response["result"]),
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": response.get("error", {}).get("message", "工具调用失败"),
+                }
+                
+        except asyncio.TimeoutError:
+            process.terminate()
+            await process.wait()
+            return {"success": False, "error": "MCP调用超时"}
+        except json.JSONDecodeError as e:
+            process.terminate()
+            await process.wait()
+            return {"success": False, "error": f"解析响应失败: {str(e)}"}
+        except Exception as e:
+            process.terminate()
+            await process.wait()
+            return {"success": False, "error": str(e)}
+    
+    async def _execute_mcp_http(
+        self,
+        base_url: str,
+        auth_type: str,
+        auth_config: dict,
+        tool_name: str,
+        arguments: dict,
+    ) -> dict[str, Any]:
+        """Execute MCP tool via HTTP transport."""
+        headers = {}
+        if auth_type == "bearer" and auth_config:
+            headers["Authorization"] = f"Bearer {auth_config.get('token', '')}"
+        elif auth_type == "api_key" and auth_config:
+            headers["X-API-Key"] = auth_config.get("api_key", "")
+        
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(
+                    f"{base_url}/tools/call",
+                    json={"name": tool_name, "arguments": arguments},
+                    headers=headers,
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    return {"success": True, "data": data.get("content", data)}
+                else:
+                    return {
+                        "success": False,
+                        "error": f"HTTP {response.status_code}",
+                        "body": response.text[:500],
+                    }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     async def _log_call(
         self,
