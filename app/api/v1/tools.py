@@ -234,6 +234,144 @@ async def update_tool_status(
     )
 
 
+@router.post("/{toolId}/permissions", response_model=BaseResponse)
+async def grant_tool_permission(
+    toolId: str,
+    tenantIds: list[str] = Query(..., description="List of tenant IDs to grant permission"),
+    db: DBSession = DBSession,
+    current_user: TenantAdmin = TenantAdmin,
+):
+    """Grant tool permission to tenants (super admin only)."""
+    from app.models.tool import TenantToolPermission
+    from app.models.tenant import Tenant
+    
+    # Only super admin can grant permissions
+    if current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="只有超级管理员可以授权工具")
+    
+    # Verify tool exists
+    result = await db.execute(select(ToolDefinition).where(ToolDefinition.id == toolId))
+    tool = result.scalar_one_or_none()
+    
+    if not tool:
+        raise HTTPException(status_code=404, detail="工具不存在")
+    
+    # Verify all tenants exist
+    for tenant_id in tenantIds:
+        tenant_result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+        if not tenant_result.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail=f"租户 {tenant_id} 不存在")
+    
+    # Create or update permissions
+    granted_count = 0
+    for tenant_id in tenantIds:
+        # Check if permission already exists
+        existing = await db.execute(
+            select(TenantToolPermission).where(
+                TenantToolPermission.tool_id == toolId,
+                TenantToolPermission.tenant_id == tenant_id,
+            )
+        )
+        perm = existing.scalar_one_or_none()
+        
+        if perm:
+            # Update existing permission
+            if not perm.enabled:
+                perm.enabled = True
+                granted_count += 1
+        else:
+            # Create new permission
+            perm = TenantToolPermission(
+                id=generate_id(),
+                tool_id=toolId,
+                tenant_id=tenant_id,
+                enabled=True,
+            )
+            db.add(perm)
+            granted_count += 1
+    
+    await db.commit()
+    
+    return BaseResponse(message=f"已为 {granted_count} 个租户授权工具")
+
+
+@router.delete("/{toolId}/permissions", response_model=BaseResponse)
+async def revoke_tool_permission(
+    toolId: str,
+    tenantIds: list[str] = Query(..., description="List of tenant IDs to revoke permission"),
+    db: DBSession = DBSession,
+    current_user: TenantAdmin = TenantAdmin,
+):
+    """Revoke tool permission from tenants (super admin only)."""
+    from app.models.tool import TenantToolPermission
+    
+    # Only super admin can revoke permissions
+    if current_user.role != "super_admin":
+        raise HTTPException(status_code=403, detail="只有超级管理员可以撤销工具授权")
+    
+    # Verify tool exists
+    result = await db.execute(select(ToolDefinition).where(ToolDefinition.id == toolId))
+    tool = result.scalar_one_or_none()
+    
+    if not tool:
+        raise HTTPException(status_code=404, detail="工具不存在")
+    
+    # Revoke permissions
+    revoked_count = 0
+    for tenant_id in tenantIds:
+        result = await db.execute(
+            select(TenantToolPermission).where(
+                TenantToolPermission.tool_id == toolId,
+                TenantToolPermission.tenant_id == tenant_id,
+            )
+        )
+        perm = result.scalar_one_or_none()
+        
+        if perm and perm.enabled:
+            perm.enabled = False
+            revoked_count += 1
+    
+    await db.commit()
+    
+    return BaseResponse(message=f"已撤销 {revoked_count} 个租户的工具授权")
+
+
+@router.get("/{toolId}/permissions", response_model=BaseResponse[list])
+async def get_tool_permissions(
+    toolId: str,
+    db: DBSession,
+    current_user: TenantAdmin,
+):
+    """Get tool permissions for all tenants."""
+    from app.models.tool import TenantToolPermission
+    from app.models.tenant import Tenant
+    
+    # Verify tool exists
+    result = await db.execute(select(ToolDefinition).where(ToolDefinition.id == toolId))
+    tool = result.scalar_one_or_none()
+    
+    if not tool:
+        raise HTTPException(status_code=404, detail="工具不存在")
+    
+    # Get all permissions with tenant info
+    result = await db.execute(
+        select(TenantToolPermission, Tenant)
+        .join(Tenant, TenantToolPermission.tenant_id == Tenant.id)
+        .where(TenantToolPermission.tool_id == toolId)
+    )
+    
+    permissions = []
+    for perm, tenant in result.all():
+        permissions.append({
+            "tenantId": tenant.id,
+            "tenantName": tenant.name,
+            "enabled": perm.enabled,
+            "createdAt": perm.created_at,
+        })
+    
+    return BaseResponse(data=permissions)
+
+
 @router.get("/{toolId}/stats", response_model=BaseResponse[ToolStatsResponse])
 async def get_tool_stats(
     toolId: str,

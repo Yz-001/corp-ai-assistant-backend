@@ -27,7 +27,7 @@ class ToolDefinition(Base, TimestampMixin):
         nullable=False,
         default="enabled",
         index=True,
-    )  # enabled, disabled
+    )  # enabled, disabled (工具状态：enabled=启用, disabled=禁用)
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     health_status: Mapped[str] = mapped_column(
         String(20),

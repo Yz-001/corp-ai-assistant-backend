@@ -41,48 +41,76 @@ class ToolExecutor:
         message_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute a tool by ID with given arguments."""
+        print("\n" + "=" * 60)
+        print("[TOOL] 开始执行工具")
+        print(f"[TOOL] Tool ID: {tool_id}")
+        print(f"[TOOL] Arguments: {json.dumps(arguments, ensure_ascii=False)[:200]}")
+        print(f"[TOOL] Tenant ID: {self.tenant_id}")
+        print("=" * 60)
+        
         start_time = time.time()
         
         # Get tool definition
+        print("[TOOL] Step 1: 获取工具定义...")
         result = await self.db.execute(
             select(ToolDefinition).where(ToolDefinition.id == tool_id)
         )
         tool = result.scalar_one_or_none()
         
         if not tool:
+            print("[TOOL] ❌ 工具不存在")
             return {"success": False, "error": "工具不存在"}
         
-        if tool.status != "active":
+        print(f"[TOOL] ✅ 工具: {tool.name} (type: {tool.type}, status: {tool.status})")
+        
+        if tool.status != "enabled":
+            print("[TOOL] ❌ 工具已禁用")
             return {"success": False, "error": "工具已禁用"}
         
         # Check permission
+        print("[TOOL] Step 2: 检查租户权限...")
         has_permission = await self.check_permission(tool_id)
         if not has_permission:
+            print("[TOOL] ❌ 租户无权使用该工具")
             return {"success": False, "error": "无权使用该工具"}
+        print("[TOOL] ✅ 权限验证通过")
         
         # Execute based on tool type
+        print(f"[TOOL] Step 3: 执行工具 (type: {tool.type})...")
         try:
             if tool.type == "internal_api":
+                print("[TOOL]    调用内部API...")
                 result_data = await self._execute_internal_api(tool, arguments)
             elif tool.type == "database_query":
+                print("[TOOL]    执行数据库查询...")
                 result_data = await self._execute_database_query(tool, arguments)
             elif tool.type == "http_service":
+                print("[TOOL]    调用HTTP服务...")
                 result_data = await self._execute_http_service(tool, arguments)
             elif tool.type == "mcp_tool":
+                print("[TOOL]    调用MCP工具...")
                 result_data = await self._execute_mcp_tool(tool, arguments)
             else:
+                print(f"[TOOL] ❌ 未知工具类型: {tool.type}")
                 result_data = {"success": False, "error": f"未知工具类型: {tool.type}"}
             
             status = "success" if result_data.get("success", True) else "failed"
             error_message = None if result_data.get("success", True) else result_data.get("error")
             
+            if status == "success":
+                print("[TOOL] ✅ 工具执行成功")
+            else:
+                print(f"[TOOL] ❌ 工具执行失败: {error_message}")
+            
         except Exception as e:
             status = "failed"
             error_message = str(e)
             result_data = {"success": False, "error": str(e)}
+            print(f"[TOOL] ❌ 执行异常: {str(e)}")
         
         # Log the call
         latency_ms = int((time.time() - start_time) * 1000)
+        print(f"[TOOL] Step 4: 记录调用日志 (耗时: {latency_ms}ms)")
         await self._log_call(
             tool=tool,
             request=arguments,
@@ -93,6 +121,10 @@ class ToolExecutor:
             session_id=session_id,
             message_id=message_id,
         )
+        
+        print("=" * 60)
+        print("[TOOL] ✅ 工具执行完成")
+        print("=" * 60 + "\n")
         
         return result_data
 
@@ -176,14 +208,18 @@ class ToolExecutor:
         if not url:
             return {"success": False, "error": "工具配置缺少url"}
         
-        # Replace URL parameters with double braces for proper escaping
+        # Replace URL parameters
         for key, value in arguments.items():
             url = url.replace("{" + key + "}", str(value))
+        
+        print(f"[TOOL]    请求URL: {url}")
+        print(f"[TOOL]    Method: {method}")
+        print(f"[TOOL]    Headers: {headers}")
         
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 if method == "GET":
-                    response = await client.get(url, params=arguments, headers=headers)
+                    response = await client.get(url, headers=headers)
                 elif method == "POST":
                     response = await client.post(url, json=arguments, headers=headers)
                 elif method == "PUT":
@@ -262,18 +298,43 @@ class ToolExecutor:
 
     async def get_available_tools(self) -> list[dict[str, Any]]:
         """Get all tools available to the current tenant."""
+        print(f"[TOOL] get_available_tools - 查询租户可用工具")
+        print(f"[TOOL]    tenant_id: {self.tenant_id}")
+        
+        # First check all permissions for this tenant
+        all_perms = await self.db.execute(
+            select(TenantToolPermission).where(
+                TenantToolPermission.tenant_id == self.tenant_id
+            )
+        )
+        perms = all_perms.scalars().all()
+        print(f"[TOOL]    租户权限记录数: {len(perms)}")
+        for p in perms:
+            print(f"[TOOL]      - tool_id: {p.tool_id}, enabled: {p.enabled}")
+        
+        # Then check all tools
+        all_tools = await self.db.execute(select(ToolDefinition))
+        tools_all = all_tools.scalars().all()
+        print(f"[TOOL]    系统工具总数: {len(tools_all)}")
+        for t in tools_all:
+            print(f"[TOOL]      - id: {t.id}, code: {t.code}, status: {t.status}")
+        
+        # Now do the join query
         result = await self.db.execute(
             select(ToolDefinition, TenantToolPermission)
             .join(TenantToolPermission, ToolDefinition.id == TenantToolPermission.tool_id)
             .where(
                 TenantToolPermission.tenant_id == self.tenant_id,
                 TenantToolPermission.enabled == True,
-                ToolDefinition.status == "active",
+                ToolDefinition.status == "enabled",
             )
         )
         
         tools = []
-        for tool, perm in result.all():
+        rows = result.all()
+        print(f"[TOOL]    JOIN查询结果数: {len(rows)}")
+        
+        for tool, perm in rows:
             tools.append({
                 "tool_id": tool.id,
                 "code": tool.code,

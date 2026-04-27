@@ -228,10 +228,16 @@ class RAGService:
             top_k: Number of results to return
             visibility: Filter by visibility ('public' or None for all)
         """
+        print(f"[RAG] 开始搜索相关文档片段...")
+        print(f"[RAG]    Query: {query[:100]}...")
+        print(f"[RAG]    Top K: {top_k}")
+        print(f"[RAG]    Visibility: {visibility or 'all'}")
+        
         try:
+            print("[RAG] Step 1: 向量检索...")
             vector_results = await self.vector_store.search(self.tenant_id, query, top_k=top_k)
             if vector_results:
-                print(f"[RAG] Vector search found {len(vector_results)} results")
+                print(f"[RAG] ✅ 向量检索找到 {len(vector_results)} 个结果")
                 results = []
                 
                 # If visibility filter is set, get document visibility info
