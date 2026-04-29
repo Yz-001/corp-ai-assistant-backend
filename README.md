@@ -1,7 +1,5 @@
 # AI Enterprise Assistant Backend
 
-纯后端FastAPI项目，从Next.js全栈项目重构而来。
-
 ## 项目结构
 
 ```
