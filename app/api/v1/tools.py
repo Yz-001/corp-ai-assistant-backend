@@ -200,6 +200,45 @@ async def update_tool(
     )
 
 
+@router.delete("/{toolId}", response_model=BaseResponse)
+async def delete_tool(
+    toolId: str,
+    db: DBSession,
+    current_user: TenantAdmin,
+):
+    """Delete a tool."""
+    from app.models.tool import TenantToolPermission, ToolCallLog
+    
+    result = await db.execute(select(ToolDefinition).where(ToolDefinition.id == toolId))
+    tool = result.scalar_one_or_none()
+    
+    if not tool:
+        raise HTTPException(status_code=404, detail="工具不存在")
+    
+    # Delete related permissions
+    await db.execute(
+        select(TenantToolPermission).where(TenantToolPermission.tool_id == toolId)
+    )
+    perms_result = await db.execute(
+        select(TenantToolPermission).where(TenantToolPermission.tool_id == toolId)
+    )
+    for perm in perms_result.scalars().all():
+        await db.delete(perm)
+    
+    # Delete related call logs
+    logs_result = await db.execute(
+        select(ToolCallLog).where(ToolCallLog.tool_id == toolId)
+    )
+    for log in logs_result.scalars().all():
+        await db.delete(log)
+    
+    # Delete tool
+    await db.delete(tool)
+    await db.commit()
+    
+    return BaseResponse(message="删除成功")
+
+
 @router.patch("/{toolId}/status", response_model=BaseResponse[ToolResponse])
 async def update_tool_status(
     toolId: str,

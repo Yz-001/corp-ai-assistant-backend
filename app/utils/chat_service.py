@@ -81,6 +81,25 @@ class ChatService:
         Yields:
             SSE event data dicts
         """
+        # Send start event
+        message_id = generate_id()
+        yield {
+            "event": "start",
+            "data": {"messageId": message_id}
+        }
+        
+        # Check if we should use tools
+        tool_executor = ToolExecutor(self.db, self.tenant_id)
+        available_tools = await tool_executor.get_available_tools()
+        
+        print(f"[PRECISE] 可用工具数: {len(available_tools)}")
+        
+        # Build tools for LLM if available
+        tools_schema = None
+        if available_tools:
+            tools_schema = self._build_tools_schema(available_tools)
+            print(f"[PRECISE] 工具schema: {json.dumps(tools_schema, ensure_ascii=False)[:500]}")
+        
         # Search knowledge base
         context, sources = await self.search_knowledge_base(
             query,
@@ -88,19 +107,9 @@ class ChatService:
             top_k=3,
         )
         
-        # If no context found, return friendly message
-        if not context or not sources:
-            yield {
-                "event": "done",
-                "data": {
-                    "content": "抱歉，这个问题我暂时无法回答，您可以联系我们的专员为您解答，客服热线：400-882-6688",
-                    "sources": [],
-                }
-            }
-            return
-        
         # Build prompt for precise answer
-        prompt = f"""请根据以下参考资料精确回答用户的问题。要求：
+        if context and sources:
+            prompt = f"""请根据以下参考资料精确回答用户的问题。要求：
 1. 只回答问题相关的内容，不要扩展
 2. 如果参考资料中有明确信息，直接提取关键信息回答
 3. 回答简洁准确
@@ -111,19 +120,108 @@ class ChatService:
 用户问题：{query}
 
 请精确回答："""
+        else:
+            prompt = f"""请回答用户的问题。要求：
+1. 回答简洁准确
+2. 如果需要使用工具获取信息，请使用提供的工具
+
+用户问题：{query}
+
+请回答："""
         
         response_text = ""
         
         if self.client:
             try:
-                stream = await self.client.chat.completions.create(
-                    model=settings.llm_model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=True,
-                    max_tokens=500,
-                    temperature=0.3,
-                )
+                # Build messages
+                messages = [
+                    {
+                        "role": "system",
+                        "content": "你是AI企业助手，一个专业、友好的AI助手。请根据提供的参考资料准确回答用户的问题。如果参考资料中有相关信息，请优先使用；如果没有，可以根据你的知识回答，但要说明这不是来自文档资料。如果用户请求需要使用工具（如读取文件、访问网页、查询物流等），请使用提供的工具。"
+                    },
+                    {"role": "user", "content": prompt},
+                ]
                 
+                # If tools available, first check if we need to call tools (non-streaming)
+                if tools_schema:
+                    print("[PRECISE] 检查是否需要调用工具...")
+                    first_response = await self.client.chat.completions.create(
+                        model=settings.llm_model_name,
+                        messages=messages,
+                        tools=tools_schema,
+                        tool_choice="auto",
+                    )
+                    
+                    # Check if LLM wants to call a tool
+                    if first_response.choices[0].message.tool_calls:
+                        tool_calls = first_response.choices[0].message.tool_calls
+                        print(f"[PRECISE] LLM请求调用 {len(tool_calls)} 个工具")
+                        
+                        # Add assistant message with tool calls
+                        messages.append(first_response.choices[0].message)
+                        
+                        # Execute each tool call
+                        for tool_call in tool_calls:
+                            tool_code = tool_call.function.name
+                            tool_args = json.loads(tool_call.function.arguments)
+                            
+                            print(f"[PRECISE] 执行工具: {tool_code}, 参数: {tool_args}")
+                            
+                            # Find tool in available_tools
+                            tool_info = next((t for t in available_tools if t["code"] == tool_code), None)
+                            
+                            if tool_info:
+                                # Execute tool
+                                result = await tool_executor.execute(
+                                    tool_info["tool_id"],
+                                    tool_args,
+                                    None,  # session_id
+                                    message_id,
+                                )
+                                
+                                print(f"[PRECISE] 工具结果: {json.dumps(result, ensure_ascii=False)[:500]}")
+                                
+                                # Add tool result to messages
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps(result, ensure_ascii=False),
+                                })
+                            else:
+                                messages.append({
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps({"error": "工具不存在"}),
+                                })
+                        
+                        # Now stream the final response
+                        stream = await self.client.chat.completions.create(
+                            model=settings.llm_model_name,
+                            messages=messages,
+                            stream=True,
+                            max_tokens=500,
+                            temperature=0.3,
+                        )
+                    else:
+                        # No tool calls, stream directly
+                        stream = await self.client.chat.completions.create(
+                            model=settings.llm_model_name,
+                            messages=messages,
+                            stream=True,
+                            max_tokens=500,
+                            temperature=0.3,
+                        )
+                else:
+                    # No tools, stream directly
+                    stream = await self.client.chat.completions.create(
+                        model=settings.llm_model_name,
+                        messages=messages,
+                        stream=True,
+                        max_tokens=500,
+                        temperature=0.3,
+                    )
+                
+                # Stream response
                 async for chunk in stream:
                     if chunk.choices and chunk.choices[0].delta.content:
                         content = chunk.choices[0].delta.content
@@ -399,13 +497,38 @@ class ChatService:
                 }
             
             elif tool_type == "http_service":
-                # Extract parameters from URL template
-                url = config.get("url", "")
-                import re
-                params = re.findall(r'\{(\w+)\}', url)
-                for p in params:
-                    parameters["properties"][p] = {"type": "string", "description": p}
-                    parameters["required"].append(p)
+                # Extract parameters from param_mapping or URL template
+                param_mapping = config.get("param_mapping", {})
+                if param_mapping:
+                    # Use param_mapping to build schema
+                    for param_name, mapping in param_mapping.items():
+                        if isinstance(mapping, dict):
+                            param_desc = mapping.get("description", param_name)
+                            param_type = mapping.get("type", "string")
+                            required = mapping.get("required", False)
+                            
+                            if param_type == "array":
+                                parameters["properties"][param_name] = {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": param_desc
+                                }
+                            else:
+                                parameters["properties"][param_name] = {
+                                    "type": param_type,
+                                    "description": param_desc
+                                }
+                            
+                            if required:
+                                parameters["required"].append(param_name)
+                else:
+                    # Fallback: extract from URL template
+                    url = config.get("url", "")
+                    import re
+                    params = re.findall(r'\{(\w+)\}', url)
+                    for p in params:
+                        parameters["properties"][p] = {"type": "string", "description": p}
+                        parameters["required"].append(p)
             
             schema.append({
                 "type": "function",
