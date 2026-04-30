@@ -22,6 +22,7 @@ class ToolDefinition(Base, TimestampMixin):
         nullable=False,
     )  # internal_api, database_query, http_service, mcp_tool
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_schema: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # JSON Schema for tool parameters
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

@@ -106,8 +106,9 @@ async def create_tool(
         name=request.name,
         type=request.type,
         description=request.description or "",
+        input_schema=request.input_schema,
         config=request.config or {},
-        status="active",
+        status="enabled",
         health_status="healthy",
     )
     db.add(tool)
@@ -121,6 +122,7 @@ async def create_tool(
             name=tool.name,
             type=tool.type,
             description=tool.description,
+            inputSchema=tool.input_schema,
             status=tool.status,
             healthStatus=tool.health_status,
             config=tool.config,
@@ -151,6 +153,7 @@ async def get_tool(
             name=tool.name,
             type=tool.type,
             description=tool.description,
+            inputSchema=tool.input_schema,
             status=tool.status,
             healthStatus=tool.health_status,
             config=tool.config,
@@ -178,6 +181,8 @@ async def update_tool(
         tool.name = request.name
     if request.description:
         tool.description = request.description
+    if request.input_schema:
+        tool.input_schema = request.input_schema
     if request.config:
         tool.config = request.config
     
@@ -191,6 +196,7 @@ async def update_tool(
             name=tool.name,
             type=tool.type,
             description=tool.description,
+            inputSchema=tool.input_schema,
             status=tool.status,
             healthStatus=tool.health_status,
             config=tool.config,
@@ -264,6 +270,7 @@ async def update_tool_status(
             name=tool.name,
             type=tool.type,
             description=tool.description,
+            inputSchema=tool.input_schema,
             status=tool.status,
             healthStatus=tool.health_status,
             config=tool.config,

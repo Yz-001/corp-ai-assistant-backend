@@ -13,7 +13,10 @@ class ToolCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100, description="Tool name")
     type: str = Field(description="Tool type: internal_api, database_query, http_service, web_scraper, mcp_tool")
     description: str | None = Field(default=None, description="Tool description")
+    input_schema: dict[str, Any] | None = Field(default=None, alias="inputSchema", description="JSON Schema for tool parameters")
     config: dict[str, Any] | None = Field(default=None, description="Tool configuration")
+    
+    model_config = {"populate_by_name": True}
 
 
 class ToolUpdate(BaseModel):
@@ -21,7 +24,10 @@ class ToolUpdate(BaseModel):
 
     name: str | None = Field(default=None, max_length=100, description="Tool name")
     description: str | None = Field(default=None, description="Tool description")
+    input_schema: dict[str, Any] | None = Field(default=None, alias="inputSchema", description="JSON Schema for tool parameters")
     config: dict[str, Any] | None = Field(default=None, description="Tool configuration")
+    
+    model_config = {"populate_by_name": True}
 
 
 class ToolResponse(BaseModel):
@@ -32,6 +38,7 @@ class ToolResponse(BaseModel):
     name: str = Field(description="Tool name")
     type: str = Field(description="Tool type")
     description: str | None = Field(default=None, description="Tool description")
+    input_schema: dict[str, Any] | None = Field(default=None, alias="inputSchema", description="JSON Schema for tool parameters")
     status: str = Field(description="Status: enabled, disabled")
     health_status: str = Field(alias="healthStatus", description="Health status")
     config: dict[str, Any] | None = Field(default=None, description="Tool configuration")

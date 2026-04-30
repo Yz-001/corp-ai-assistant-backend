@@ -389,6 +389,14 @@ class ToolExecutor:
         print(f"[TOOL]    原始参数: {json.dumps(arguments, ensure_ascii=False)}")
         print(f"[TOOL]    原始参数键名: {list(arguments.keys())}")
         
+        # 0. 如果 arguments 为空，尝试从配置中获取默认值或示例
+        if not arguments:
+            # 检查是否有默认值配置
+            default_params = config.get("default_params", {})
+            if default_params:
+                arguments = default_params
+                print(f"[TOOL]    使用默认参数: {json.dumps(arguments, ensure_ascii=False)}")
+        
         # 1. 处理参数映射
         param_mapping = config.get("param_mapping", {})
         print(f"[TOOL]    参数映射配置: {json.dumps(param_mapping, ensure_ascii=False)}")
@@ -1044,6 +1052,7 @@ class ToolExecutor:
                 "name": tool.name,
                 "type": tool.type,
                 "description": tool.description,
+                "input_schema": tool.input_schema,  # 添加 input_schema
                 "config": merged_config,
             })
         

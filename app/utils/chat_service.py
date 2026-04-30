@@ -530,6 +530,13 @@ class ChatService:
                         parameters["properties"][p] = {"type": "string", "description": p}
                         parameters["required"].append(p)
             
+            # 优先使用 input_schema
+            if tool.get("input_schema"):
+                parameters = tool["input_schema"]
+            elif not parameters.get("properties"):
+                # Fallback: empty parameters
+                parameters = {"type": "object", "properties": {}, "required": []}
+            
             schema.append({
                 "type": "function",
                 "function": {
