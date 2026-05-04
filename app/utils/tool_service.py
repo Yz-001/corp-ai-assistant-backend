@@ -319,54 +319,496 @@ class ToolExecutor:
     async def _execute_http_service(
         self, tool: ToolDefinition, arguments: dict[str, Any]
     ) -> dict[str, Any]:
-        """Execute HTTP service tool."""
+        """
+        Execute HTTP service tool - 通用第三方 HTTP 调用.
+        
+        配置示例（物流轨迹查询）:
+        {
+            "url": "https://logist.tmexp.com/api/link/orderLocusInfo/getLocusInfoList",
+            "method": "POST",
+            "timeout": 30,
+            "auth": {
+                "type": "signature",
+                "algorithm": "md5",
+                "template": "{app_id}{timestamp}{uuid}{app_secret}",
+                "credentials": {
+                    "app_id": "TMGJWL",
+                    "app_secret": "xxx",
+                    "uuid": "xxx"
+                }
+            },
+            "headers": {
+                "Content-Type": "application/json",
+                "timestamp": "{{timestamp}}",
+                "uuid": "{{uuid}}",
+                "signature": "{{signature}}",
+                "linktype": "3"
+            },
+            "body_template": {
+                "innerOrderNo": "{{innerOrderNo}}"
+            },
+            "param_mapping": {
+                "innerOrderNo": {
+                    "source": ["innerOrderNo", "order_number", "orderNo"],
+                    "type": "array",
+                    "required": true,
+                    "description": "运单号数组"
+                }
+            }
+        }
+        
+        简单配置示例（普通HTTP调用）:
+        {
+            "url": "https://api.example.com/data",
+            "method": "GET",
+            "headers": {
+                "Authorization": "Bearer {{api_key}}"
+            },
+            "credentials": {
+                "api_key": "xxx"
+            }
+        }
+        """
+        import hashlib
+        import re
+        
         config = tool.config or {}
         url = config.get("url")
         method = config.get("method", "POST").upper()
-        headers = config.get("headers", {})
         timeout = config.get("timeout", 30)
         
         if not url:
             return {"success": False, "error": "工具配置缺少url"}
         
-        # Replace URL parameters
-        for key, value in arguments.items():
-            url = url.replace("{" + key + "}", str(value))
+        print(f"[TOOL]    ┌────────────────────────────────────────────────────────────")
+        print(f"[TOOL]    │ [HTTP请求准备]")
+        print(f"[TOOL]    │ URL: {url}")
+        print(f"[TOOL]    │ Method: {method}")
+        print(f"[TOOL]    │ Timeout: {timeout}s")
+        print(f"[TOOL]    └────────────────────────────────────────────────────────────")
+        print(f"[TOOL]    原始参数: {json.dumps(arguments, ensure_ascii=False)}")
+        print(f"[TOOL]    原始参数键名: {list(arguments.keys())}")
         
-        print(f"[TOOL]    请求URL: {url}")
-        print(f"[TOOL]    Method: {method}")
-        print(f"[TOOL]    Headers: {headers}")
+        # 0. 如果 arguments 为空，尝试从配置中获取默认值或示例
+        if not arguments:
+            # 检查是否有默认值配置
+            default_params = config.get("default_params", {})
+            if default_params:
+                arguments = default_params
+                print(f"[TOOL]    使用默认参数: {json.dumps(arguments, ensure_ascii=False)}")
+        
+        # 1. 处理参数映射
+        param_mapping = config.get("param_mapping", {})
+        print(f"[TOOL]    参数映射配置: {json.dumps(param_mapping, ensure_ascii=False)}")
+        print(f"[TOOL]    AI传递的原始参数: {json.dumps(arguments, ensure_ascii=False)}")
+        processed_args = self._process_param_mapping(arguments, param_mapping)
+        if processed_args.get("_error"):
+            return {"success": False, "error": processed_args["_error"]}
+        print(f"[TOOL]    处理后参数: {json.dumps(processed_args, ensure_ascii=False)}")
+        
+        # 2. 构建认证变量（签名等）
+        auth_config = config.get("auth", {})
+        credentials = config.get("credentials", {})
+        auth_vars = self._build_auth_vars(auth_config, credentials)
+        print(f"[TOOL]    认证变量: {json.dumps({k: '***' if 'secret' in k.lower() or 'key' in k.lower() else v for k, v in auth_vars.items()}, ensure_ascii=False)}")
+        
+        # 3. 合并所有变量
+        all_vars = {**processed_args, **auth_vars}
+        print(f"[TOOL]    all_vars: {json.dumps({k: '***' if 'secret' in k.lower() or 'key' in k.lower() else v for k, v in all_vars.items()}, ensure_ascii=False)[:500]}")
+        
+        # 4. 构建请求头（替换模板变量）
+        headers = self._render_template(config.get("headers", {}), all_vars)
+        print(f"[TOOL]    ┌────────────────────────────────────────────────────────────")
+        print(f"[TOOL]    │ [请求头 Headers]")
+        for k, v in headers.items():
+            # 隐藏敏感信息
+            display_v = '***' if 'secret' in k.lower() or 'key' in k.lower() or 'token' in k.lower() else v
+            print(f"[TOOL]    │   {k}: {display_v}")
+        print(f"[TOOL]    └────────────────────────────────────────────────────────────")
+        
+        # 5. 构建请求体
+        body_template = config.get("body_template")
+        if body_template:
+            request_body = self._render_template(body_template, all_vars)
+        else:
+            request_body = processed_args
+        print(f"[TOOL]    ┌────────────────────────────────────────────────────────────")
+        print(f"[TOOL]    │ [请求体 Request Body]")
+        print(f"[TOOL]    │ {json.dumps(request_body, ensure_ascii=False)[:1000]}")
+        print(f"[TOOL]    └────────────────────────────────────────────────────────────")
+        
+        # 6. 替换 URL 中的模板变量
+        final_url = self._render_url(url, all_vars)
+        print(f"[TOOL]    最终URL: {final_url}")
+        
+        # 7. 发送请求
+        print(f"[TOOL]    ┌────────────────────────────────────────────────────────────")
+        print(f"[TOOL]    │ [发送HTTP请求...]")
+        start_time = time.time()
         
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 if method == "GET":
-                    response = await client.get(url, headers=headers)
+                    response = await client.get(final_url, headers=headers, params=processed_args)
                 elif method == "POST":
-                    response = await client.post(url, json=arguments, headers=headers)
+                    response = await client.post(final_url, json=request_body, headers=headers)
                 elif method == "PUT":
-                    response = await client.put(url, json=arguments, headers=headers)
+                    response = await client.put(final_url, json=request_body, headers=headers)
                 elif method == "DELETE":
-                    response = await client.delete(url, headers=headers)
+                    response = await client.delete(final_url, headers=headers)
                 else:
                     return {"success": False, "error": f"不支持的HTTP方法: {method}"}
+                
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                print(f"[TOOL]    │ 请求耗时: {elapsed_ms}ms")
+                print(f"[TOOL]    │ 响应状态: {response.status_code}")
                 
                 if 200 <= response.status_code < 300:
                     try:
                         data = response.json()
+                        print(f"[TOOL]    │ 响应数据: {json.dumps(data, ensure_ascii=False)[:2000]}")
                     except Exception:
                         data = response.text
-                    return {"success": True, "data": data, "status_code": response.status_code}
+                        print(f"[TOOL]    │ 响应文本: {data[:2000]}")
+                    print(f"[TOOL]    └────────────────────────────────────────────────────────────")
+                    
+                    # 处理响应模板
+                    result_data = self._process_response_template(config, data)
+                    
+                    return {
+                        "success": True, 
+                        "data": result_data, 
+                        "status_code": response.status_code, 
+                        "elapsed_ms": elapsed_ms,
+                        "request_body": request_body,  # 添加请求体
+                        "request_url": final_url,  # 添加请求URL
+                    }
                 else:
+                    print(f"[TOOL]    │ 响应错误: {response.text[:1000]}")
+                    print(f"[TOOL]    └────────────────────────────────────────────────────────────")
                     return {
                         "success": False, 
                         "error": f"HTTP请求失败: {response.status_code}",
                         "status_code": response.status_code,
-                        "body": response.text[:500] if response.text else None
+                        "body": response.text[:1000] if response.text else None
                     }
         except httpx.TimeoutException:
-            return {"success": False, "error": "请求超时"}
+            print(f"[TOOL]    └────────────────────────────────────────────────────────────")
+            return {"success": False, "error": f"请求超时 ({timeout}s)"}
         except httpx.RequestError as e:
+            print(f"[TOOL]    └────────────────────────────────────────────────────────────")
             return {"success": False, "error": f"请求失败: {str(e)}"}
+    
+    def _process_param_mapping(
+        self, 
+        arguments: dict[str, Any], 
+        param_mapping: dict[str, Any]
+    ) -> dict[str, Any]:
+        """处理参数映射和类型转换。"""
+        import re
+        
+        if not param_mapping:
+            # 没有映射配置，直接返回原始参数
+            return arguments.copy()
+        
+        processed = {}
+        
+        for target_name, mapping in param_mapping.items():
+            if isinstance(mapping, dict):
+                source_names = mapping.get("source", target_name)
+                param_type = mapping.get("type", "string")
+                required = mapping.get("required", False)
+                default = mapping.get("default")
+                extract_pattern = mapping.get("extract_pattern")
+                
+                # 获取值
+                value = None
+                
+                # 支持多个源名称（优先级从高到低）
+                if isinstance(source_names, list):
+                    for src in source_names:
+                        if src in arguments:
+                            value = arguments[src]
+                            break
+                    # 如果 source 列表中没找到，尝试模糊匹配
+                    if value is None and arguments:
+                        for src in source_names:
+                            src_lower = src.lower().replace("_", "").replace("-", "")
+                            for arg_key, arg_value in arguments.items():
+                                arg_lower = arg_key.lower().replace("_", "").replace("-", "")
+                                if src_lower == arg_lower or src_lower in arg_lower or arg_lower in src_lower:
+                                    value = arg_value
+                                    print(f"[TOOL]    模糊匹配: {arg_key} -> {src}")
+                                    break
+                            if value is not None:
+                                break
+                else:
+                    value = arguments.get(source_names)
+                
+                # 如果还是没找到，且有必填参数，尝试获取第一个非空值
+                if value is None and required and arguments:
+                    for arg_key, arg_value in arguments.items():
+                        if arg_value and not arg_key.startswith("_"):
+                            value = arg_value
+                            print(f"[TOOL]    自动获取第一个参数: {arg_key} = {value}")
+                            break
+                
+                # 支持正则提取
+                if value is None and extract_pattern and arguments.get("_query"):
+                    match = re.search(extract_pattern, arguments["_query"])
+                    if match:
+                        value = match.group()
+                
+                # 使用默认值
+                if value is None and default is not None:
+                    value = default
+                
+                # 必填检查
+                if required and value is None:
+                    return {"_error": f"缺少必填参数: {target_name}"}
+                
+                # 类型转换
+                if value is not None:
+                    if param_type == "array":
+                        if isinstance(value, str):
+                            value = [value]
+                        elif not isinstance(value, list):
+                            value = [str(value)]
+                    elif param_type == "string":
+                        value = str(value) if not isinstance(value, str) else value
+                    elif param_type == "number":
+                        try:
+                            value = float(value) if not isinstance(value, (int, float)) else value
+                        except (ValueError, TypeError):
+                            return {"_error": f"参数 {target_name} 必须是数字"}
+                
+                processed[target_name] = value
+            else:
+                # 简单映射：直接使用值
+                processed[target_name] = arguments.get(mapping)
+        
+        return processed
+    
+    def _build_auth_vars(
+        self, 
+        auth_config: dict[str, Any], 
+        credentials: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        构建认证变量（包括签名）。
+        
+        支持的认证类型：
+        - none: 无认证
+        - static: 静态变量（从 credentials 中获取）
+        - signature: 签名认证（支持 md5, sha256 等）
+        """
+        import hashlib
+        
+        auth_type = auth_config.get("type", "none")
+        result = {}
+        
+        if auth_type == "none":
+            # 无认证，只返回 credentials 中的变量
+            return credentials.copy()
+        
+        elif auth_type == "static":
+            # 静态变量
+            return credentials.copy()
+        
+        elif auth_type == "signature":
+            # 签名认证
+            algorithm = auth_config.get("algorithm", "md5")
+            template = auth_config.get("template", "")
+            
+            # 生成时间戳
+            import time
+            timestamp = str(int(time.time() * 1000))
+            result["timestamp"] = timestamp
+            
+            # 合并 credentials
+            all_creds = {**credentials, "timestamp": timestamp}
+            
+            # 构建签名字符串
+            sign_str = template
+            for key, value in all_creds.items():
+                sign_str = sign_str.replace("{" + key + "}", str(value))
+            
+            # 计算签名
+            if algorithm == "md5":
+                signature = hashlib.md5(sign_str.encode()).hexdigest()
+            elif algorithm == "sha256":
+                signature = hashlib.sha256(sign_str.encode()).hexdigest()
+            elif algorithm == "sha1":
+                signature = hashlib.sha1(sign_str.encode()).hexdigest()
+            else:
+                signature = sign_str  # 不加密，直接返回
+            
+            result["signature"] = signature
+            result.update(credentials)
+            
+            print(f"[TOOL]    签名字符串: {sign_str}")
+            print(f"[TOOL]    签名结果: {signature}")
+            
+            return result
+        
+        return result
+    
+    def _render_template(self, template: Any, variables: dict[str, Any]) -> Any:
+        """
+        渲染模板，替换 {{variable}} 占位符。
+        
+        支持递归处理 dict, list, str 类型。
+        当模板值正好是 {{variable}} 且变量是数组/对象时，直接返回变量值（保持类型）。
+        """
+        import sys
+        print(f"[TOOL]    _render_template called: type={type(template).__name__}", file=sys.stderr, flush=True)
+        
+        if isinstance(template, dict):
+            result = {}
+            for k, v in template.items():
+                print(f"[TOOL]    _render_template dict item: {k} = {repr(v)[:50]}", file=sys.stderr, flush=True)
+                result[k] = self._render_template(v, variables)
+            return result
+        elif isinstance(template, list):
+            return [self._render_template(item, variables) for item in template]
+        elif isinstance(template, str):
+            # 检查是否正好是单个 {{variable}} 占位符
+            print(f"[TOOL]    _render_template str: '{template}'", file=sys.stderr, flush=True)
+            print(f"[TOOL]    variables keys: {list(variables.keys())}", file=sys.stderr, flush=True)
+            for key, value in variables.items():
+                placeholder = "{{" + key + "}}"
+                print(f"[TOOL]    checking: '{placeholder}' == '{template}' ? {placeholder == template}", file=sys.stderr, flush=True)
+                if template == placeholder:
+                    print(f"[TOOL]    MATCH! Returning value: {json.dumps(value, ensure_ascii=False)[:100]}", file=sys.stderr, flush=True)
+                    # 直接返回变量值，保持原始类型（数组、对象等）
+                    return value
+            
+            # 否则进行字符串替换
+            result = template
+            for key, value in variables.items():
+                if isinstance(value, (str, int, float)):
+                    result = result.replace("{{" + key + "}}", str(value))
+                elif isinstance(value, list):
+                    # 将列表转为 JSON 字符串
+                    result = result.replace("{{" + key + "}}", json.dumps(value, ensure_ascii=False))
+                elif isinstance(value, dict):
+                    # 将对象转为 JSON 字符串
+                    result = result.replace("{{" + key + "}}", json.dumps(value, ensure_ascii=False))
+            print(f"[TOOL]    final result: {result[:100]}", file=sys.stderr, flush=True)
+            return result
+        else:
+            return template
+    
+    def _render_url(self, url: str, variables: dict[str, Any]) -> str:
+        """渲染 URL，替换 {variable} 和 {{variable}} 占位符。"""
+        result = url
+        for key, value in variables.items():
+            if isinstance(value, (str, int, float)):
+                result = result.replace("{" + key + "}", str(value))
+                result = result.replace("{{" + key + "}}", str(value))
+        return result
+    
+    def _process_response_template(
+        self, 
+        config: dict[str, Any], 
+        data: Any
+    ) -> Any:
+        """
+        处理响应模板，将 API 返回的数据转换为指定格式。
+        
+        配置示例:
+        {
+            "response_format": "text",  // "json" 或 "text"
+            "response_template": "运单号：{{waybill_no}}\\n状态：{{status}}\\n...",
+            "response_fields": {
+                "waybill_no": "data.orderNo",
+                "status": "data.status",
+                "tracks": "data.trackList"
+            },
+            "list_template": {
+                "field": "tracks",
+                "item_template": "{{time}} {{location}} {{description}}\\n"
+            }
+        }
+        """
+        response_format = config.get("response_format", "json")
+        
+        # 如果是 JSON 格式或没有配置模板，直接返回原始数据
+        if response_format == "json":
+            return data
+        
+        response_template = config.get("response_template")
+        if not response_template:
+            return data
+        
+        # 提取字段值
+        response_fields = config.get("response_fields", {})
+        field_values = {}
+        
+        for target_name, source_path in response_fields.items():
+            value = self._extract_field_value(data, source_path)
+            field_values[target_name] = value
+        
+        # 渲染模板
+        result = response_template
+        for key, value in field_values.items():
+            if value is not None:
+                if isinstance(value, list):
+                    # 处理列表字段
+                    list_config = config.get("list_template", {})
+                    if list_config.get("field") == key:
+                        item_template = list_config.get("item_template", "{{.}}\\n")
+                        list_str = ""
+                        for item in value:
+                            if isinstance(item, dict):
+                                item_str = item_template
+                                for k, v in item.items():
+                                    item_str = item_str.replace("{{" + k + "}}", str(v) if v else "")
+                            else:
+                                item_str = item_template.replace("{{.}}", str(item))
+                            list_str += item_str
+                        result = result.replace("{{" + key + "}}", list_str.strip())
+                    else:
+                        # 直接转为字符串
+                        result = result.replace("{{" + key + "}}", json.dumps(value, ensure_ascii=False))
+                else:
+                    result = result.replace("{{" + key + "}}", str(value))
+        
+        print(f"[TOOL]    响应模板渲染结果:\\n{result[:1000]}")
+        
+        return {"text": result, "raw": data}
+    
+    def _extract_field_value(self, data: Any, path: str) -> Any:
+        """
+        从嵌套数据中提取字段值。
+        
+        支持路径语法：
+        - "data.orderNo" -> data["data"]["orderNo"]
+        - "data.items[0].name" -> data["data"]["items"][0]["name"]
+        """
+        if not path:
+            return data
+        
+        current = data
+        parts = path.replace("[", ".").replace("]", "").split(".")
+        
+        for part in parts:
+            if not part:
+                continue
+            if current is None:
+                return None
+            if isinstance(current, dict):
+                current = current.get(part)
+            elif isinstance(current, list):
+                try:
+                    index = int(part)
+                    current = current[index] if 0 <= index < len(current) else None
+                except ValueError:
+                    return None
+            else:
+                return None
+        
+        return current
 
     async def _execute_mcp_tool(
         self, tool: ToolDefinition, arguments: dict[str, Any]
@@ -638,13 +1080,45 @@ class ToolExecutor:
         print(f"[TOOL]    JOIN查询结果数: {len(rows)}")
         
         for tool, perm in rows:
+            # 深度合并配置：工具默认配置 + 租户个性化配置
+            merged_config = self._merge_config(tool.config, perm.config)
             tools.append({
                 "tool_id": tool.id,
                 "code": tool.code,
                 "name": tool.name,
                 "type": tool.type,
                 "description": tool.description,
-                "config": perm.config or tool.config,
+                "input_schema": tool.input_schema,  # 添加 input_schema
+                "config": merged_config,
             })
         
         return tools
+    
+    def _merge_config(self, base_config: dict | None, override_config: dict | None) -> dict:
+        """
+        深度合并配置。
+        
+        租户配置会覆盖工具默认配置，但不会丢失未覆盖的默认值。
+        例如：
+        - 工具默认配置: {"url": "xxx", "timeout": 30, "credentials": {"app_id": "default"}}
+        - 租户配置: {"credentials": {"app_secret": "xxx"}}
+        - 合并结果: {"url": "xxx", "timeout": 30, "credentials": {"app_id": "default", "app_secret": "xxx"}}
+        """
+        if base_config is None and override_config is None:
+            return {}
+        if base_config is None:
+            return override_config.copy()
+        if override_config is None:
+            return base_config.copy()
+        
+        result = base_config.copy()
+        
+        for key, value in override_config.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                # 递归合并字典
+                result[key] = self._merge_config(result[key], value)
+            else:
+                # 直接覆盖
+                result[key] = value
+        
+        return result

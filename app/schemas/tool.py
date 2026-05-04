@@ -13,7 +13,10 @@ class ToolCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100, description="Tool name")
     type: str = Field(description="Tool type: internal_api, database_query, http_service, web_scraper, mcp_tool")
     description: str | None = Field(default=None, description="Tool description")
+    input_schema: dict[str, Any] | None = Field(default=None, alias="inputSchema", description="JSON Schema for tool parameters")
     config: dict[str, Any] | None = Field(default=None, description="Tool configuration")
+    
+    model_config = {"populate_by_name": True}
 
 
 class ToolUpdate(BaseModel):
@@ -21,7 +24,10 @@ class ToolUpdate(BaseModel):
 
     name: str | None = Field(default=None, max_length=100, description="Tool name")
     description: str | None = Field(default=None, description="Tool description")
+    input_schema: dict[str, Any] | None = Field(default=None, alias="inputSchema", description="JSON Schema for tool parameters")
     config: dict[str, Any] | None = Field(default=None, description="Tool configuration")
+    
+    model_config = {"populate_by_name": True}
 
 
 class ToolResponse(BaseModel):
@@ -32,6 +38,7 @@ class ToolResponse(BaseModel):
     name: str = Field(description="Tool name")
     type: str = Field(description="Tool type")
     description: str | None = Field(default=None, description="Tool description")
+    input_schema: dict[str, Any] | None = Field(default=None, alias="inputSchema", description="JSON Schema for tool parameters")
     status: str = Field(description="Status: enabled, disabled")
     health_status: str = Field(alias="healthStatus", description="Health status")
     config: dict[str, Any] | None = Field(default=None, description="Tool configuration")
@@ -48,6 +55,7 @@ class ToolListResponse(BaseModel):
     code: str = Field(description="Tool code")
     name: str = Field(description="Tool name")
     type: str = Field(description="Tool type")
+    description: str | None = Field(default=None, description="Tool description")
     status: str = Field(description="Status")
     health_status: str = Field(alias="healthStatus", description="Health status")
     call_count: int = Field(default=0, alias="callCount", description="Call count")
@@ -65,6 +73,9 @@ class ToolStatsResponse(BaseModel):
     success_count: int = Field(default=0, alias="successCount", description="Success count")
     error_count: int = Field(default=0, alias="errorCount", description="Error count")
     avg_latency_ms: int = Field(default=0, alias="avgLatencyMs", description="Average latency")
+    min_latency_ms: int = Field(default=0, alias="minLatencyMs", description="Min latency")
+    max_latency_ms: int = Field(default=0, alias="maxLatencyMs", description="Max latency")
+    error_rate: float = Field(default=0.0, alias="errorRate", description="Error rate")
     trend: list[dict[str, Any]] = Field(default_factory=list, description="Trend data")
 
     model_config = {"populate_by_name": True}
