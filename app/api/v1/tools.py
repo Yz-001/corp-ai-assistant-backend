@@ -177,13 +177,13 @@ async def update_tool(
     if not tool:
         raise HTTPException(status_code=404, detail="工具不存在")
     
-    if request.name:
+    if request.name is not None:
         tool.name = request.name
-    if request.description:
+    if request.description is not None:
         tool.description = request.description
-    if request.input_schema:
+    if request.input_schema is not None:
         tool.input_schema = request.input_schema
-    if request.config:
+    if request.config is not None:
         tool.config = request.config
     
     await db.commit()

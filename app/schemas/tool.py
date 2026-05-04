@@ -55,6 +55,7 @@ class ToolListResponse(BaseModel):
     code: str = Field(description="Tool code")
     name: str = Field(description="Tool name")
     type: str = Field(description="Tool type")
+    description: str | None = Field(default=None, description="Tool description")
     status: str = Field(description="Status")
     health_status: str = Field(alias="healthStatus", description="Health status")
     call_count: int = Field(default=0, alias="callCount", description="Call count")
@@ -72,6 +73,9 @@ class ToolStatsResponse(BaseModel):
     success_count: int = Field(default=0, alias="successCount", description="Success count")
     error_count: int = Field(default=0, alias="errorCount", description="Error count")
     avg_latency_ms: int = Field(default=0, alias="avgLatencyMs", description="Average latency")
+    min_latency_ms: int = Field(default=0, alias="minLatencyMs", description="Min latency")
+    max_latency_ms: int = Field(default=0, alias="maxLatencyMs", description="Max latency")
+    error_rate: float = Field(default=0.0, alias="errorRate", description="Error rate")
     trend: list[dict[str, Any]] = Field(default_factory=list, description="Trend data")
 
     model_config = {"populate_by_name": True}

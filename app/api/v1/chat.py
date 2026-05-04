@@ -422,32 +422,79 @@ async def send_message_stream(request: MessageCreate, current_user: CurrentUser,
             for tool in available_tools:
                 print(f"[STREAM]    - {tool['name']} (code: {tool['code']}, type: {tool['type']})")
             
-            # Build tool definitions for LLM
+            # Build tool definitions for LLM using input_schema
             tool_definitions = []
             for tool in available_tools:
+                tool_type = tool.get("type", "")
+                tool_code = tool.get("code", "")
+                tool_name = tool.get("name", "")
+                tool_desc = tool.get("description", "")
+                config = tool.get("config", {})
+                
+                # Build parameters schema based on tool type
+                parameters = {"type": "object", "properties": {}, "required": []}
+                
+                if tool_type == "mcp_tool":
+                    # MCP tools - use input_schema from config
+                    if config.get("input_schema"):
+                        parameters = config["input_schema"]
+                    else:
+                        parameters = {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string", "description": "文件路径"},
+                            },
+                            "required": ["path"],
+                        }
+                
+                elif tool_type == "web_scraper":
+                    parameters = {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "要爬取的网页URL"},
+                        },
+                        "required": ["url"],
+                    }
+                
+                elif tool_type == "http_service":
+                    # Extract parameters from param_mapping or use input_schema
+                    param_mapping = config.get("param_mapping", {})
+                    if param_mapping:
+                        for param_name, mapping in param_mapping.items():
+                            if isinstance(mapping, dict):
+                                param_desc = mapping.get("description", param_name)
+                                param_type = mapping.get("type", "string")
+                                required = mapping.get("required", False)
+                                
+                                if param_type == "array":
+                                    parameters["properties"][param_name] = {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": param_desc
+                                    }
+                                else:
+                                    parameters["properties"][param_name] = {
+                                        "type": param_type,
+                                        "description": param_desc
+                                    }
+                                
+                                if required:
+                                    parameters["required"].append(param_name)
+                
+                # 优先使用 input_schema
+                if tool.get("input_schema"):
+                    parameters = tool["input_schema"]
+                elif not parameters.get("properties"):
+                    parameters = {"type": "object", "properties": {}, "required": []}
+                
                 tool_def = {
                     "type": "function",
                     "function": {
-                        "name": tool['code'],
-                        "description": tool['description'] or tool['name'],
-                        "parameters": {
-                            "type": "object",
-                            "properties": {},
-                            "required": []
-                        }
+                        "name": tool_code,
+                        "description": tool_desc or tool_name,
+                        "parameters": parameters,
                     }
                 }
-                # Add specific parameters based on tool type
-                if tool['type'] == 'http_service':
-                    config = tool.get('config', {})
-                    url = config.get('url', '')
-                    # Detect common parameters from URL template
-                    if '{city}' in url or '{location}' in url:
-                        tool_def["function"]["parameters"]["properties"]["city"] = {
-                            "type": "string",
-                            "description": "城市名称"
-                        }
-                        tool_def["function"]["parameters"]["required"].append("city")
                 
                 tool_definitions.append(tool_def)
             

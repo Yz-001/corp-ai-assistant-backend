@@ -400,6 +400,7 @@ class ToolExecutor:
         # 1. 处理参数映射
         param_mapping = config.get("param_mapping", {})
         print(f"[TOOL]    参数映射配置: {json.dumps(param_mapping, ensure_ascii=False)}")
+        print(f"[TOOL]    AI传递的原始参数: {json.dumps(arguments, ensure_ascii=False)}")
         processed_args = self._process_param_mapping(arguments, param_mapping)
         if processed_args.get("_error"):
             return {"success": False, "error": processed_args["_error"]}
@@ -413,6 +414,7 @@ class ToolExecutor:
         
         # 3. 合并所有变量
         all_vars = {**processed_args, **auth_vars}
+        print(f"[TOOL]    all_vars: {json.dumps({k: '***' if 'secret' in k.lower() or 'key' in k.lower() else v for k, v in all_vars.items()}, ensure_ascii=False)[:500]}")
         
         # 4. 构建请求头（替换模板变量）
         headers = self._render_template(config.get("headers", {}), all_vars)
@@ -473,7 +475,14 @@ class ToolExecutor:
                     # 处理响应模板
                     result_data = self._process_response_template(config, data)
                     
-                    return {"success": True, "data": result_data, "status_code": response.status_code, "elapsed_ms": elapsed_ms}
+                    return {
+                        "success": True, 
+                        "data": result_data, 
+                        "status_code": response.status_code, 
+                        "elapsed_ms": elapsed_ms,
+                        "request_body": request_body,  # 添加请求体
+                        "request_url": final_url,  # 添加请求URL
+                    }
                 else:
                     print(f"[TOOL]    │ 响应错误: {response.text[:1000]}")
                     print(f"[TOOL]    └────────────────────────────────────────────────────────────")
@@ -649,16 +658,43 @@ class ToolExecutor:
         渲染模板，替换 {{variable}} 占位符。
         
         支持递归处理 dict, list, str 类型。
+        当模板值正好是 {{variable}} 且变量是数组/对象时，直接返回变量值（保持类型）。
         """
+        import sys
+        print(f"[TOOL]    _render_template called: type={type(template).__name__}", file=sys.stderr, flush=True)
+        
         if isinstance(template, dict):
-            return {k: self._render_template(v, variables) for k, v in template.items()}
+            result = {}
+            for k, v in template.items():
+                print(f"[TOOL]    _render_template dict item: {k} = {repr(v)[:50]}", file=sys.stderr, flush=True)
+                result[k] = self._render_template(v, variables)
+            return result
         elif isinstance(template, list):
             return [self._render_template(item, variables) for item in template]
         elif isinstance(template, str):
+            # 检查是否正好是单个 {{variable}} 占位符
+            print(f"[TOOL]    _render_template str: '{template}'", file=sys.stderr, flush=True)
+            print(f"[TOOL]    variables keys: {list(variables.keys())}", file=sys.stderr, flush=True)
+            for key, value in variables.items():
+                placeholder = "{{" + key + "}}"
+                print(f"[TOOL]    checking: '{placeholder}' == '{template}' ? {placeholder == template}", file=sys.stderr, flush=True)
+                if template == placeholder:
+                    print(f"[TOOL]    MATCH! Returning value: {json.dumps(value, ensure_ascii=False)[:100]}", file=sys.stderr, flush=True)
+                    # 直接返回变量值，保持原始类型（数组、对象等）
+                    return value
+            
+            # 否则进行字符串替换
             result = template
             for key, value in variables.items():
                 if isinstance(value, (str, int, float)):
                     result = result.replace("{{" + key + "}}", str(value))
+                elif isinstance(value, list):
+                    # 将列表转为 JSON 字符串
+                    result = result.replace("{{" + key + "}}", json.dumps(value, ensure_ascii=False))
+                elif isinstance(value, dict):
+                    # 将对象转为 JSON 字符串
+                    result = result.replace("{{" + key + "}}", json.dumps(value, ensure_ascii=False))
+            print(f"[TOOL]    final result: {result[:100]}", file=sys.stderr, flush=True)
             return result
         else:
             return template
